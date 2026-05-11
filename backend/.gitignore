@@ -1,0 +1,14 @@
+node_modules
+# Keep environment variables out of version control
+.env
+.env.*
+
+/generated/prisma
+
+# Local databases and generated Prisma files
+*.db
+*.db-journal
+
+# Firebase/Admin credentials
+serviceAccountKey.json
+**/serviceAccountKey.json
