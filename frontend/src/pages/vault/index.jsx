@@ -70,6 +70,9 @@ export default function Vault({ user }) {
   const { refreshToken } = authContext;
   const [logs, setLogs] = useState([]);
   const [selectedSession, setSelectedSession] = useState(null);
+  const [selectedArchiveIds, setSelectedArchiveIds] = useState(new Set());
+  const [manageMode, setManageMode] = useState(false);
+  const [archiveNotice, setArchiveNotice] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -139,6 +142,106 @@ export default function Vault({ user }) {
     };
   }, [logs]);
 
+  const getAuthToken = async () => {
+    if (authContext.refreshToken) return authContext.refreshToken();
+    return activeUser?.getIdToken ? activeUser.getIdToken() : activeUser?.accessToken;
+  };
+
+  const toggleArchiveSelection = (id) => {
+    setSelectedArchiveIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const deleteArchiveItems = async (items, label = 'selected items') => {
+    const targets = items.filter(Boolean);
+    if (!targets.length) return;
+    if (!window.confirm(`Delete ${label} from your archive? This cannot be undone.`)) return;
+
+    setArchiveNotice('Deleting archive items...');
+    try {
+      const token = await getAuthToken();
+      const deletedIds = [];
+      await Promise.all(targets.map(async (item) => {
+        const response = await fetch(`${API_BASE_URL}/api/sessions/${item.id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token || ''}` },
+        });
+
+        if (response.ok) {
+          deletedIds.push(item.id);
+          return response.json();
+        }
+
+        if (item.goal === 'INSPIRATION_SAVE' && item.archivePhoto?.photoId) {
+          const fallback = await fetch(`${API_BASE_URL}/api/photos/${item.archivePhoto.photoId}/save`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token || ''}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ saved: false, userId: activeUser.uid, photo: item.archivePhoto }),
+          });
+          if (fallback.ok) {
+            deletedIds.push(item.id);
+            return fallback.json();
+          }
+        }
+
+        throw new Error(`Delete failed (${response.status})`);
+      }));
+
+      setLogs((current) => current.filter((log) => !deletedIds.includes(log.id)));
+      setSelectedArchiveIds(new Set());
+      if (selectedSession && deletedIds.includes(selectedSession.id)) setSelectedSession(null);
+      setArchiveNotice(`Deleted ${deletedIds.length} archive item${deletedIds.length === 1 ? '' : 's'}.`);
+    } catch (err) {
+      console.error('Archive delete failed:', err);
+      setArchiveNotice('Could not delete archive items. Restart the backend if it is still running old routes, then try again.');
+    }
+  };
+
+  const deleteSelectedArchiveItems = () => {
+    const targets = logs.filter((log) => selectedArchiveIds.has(log.id)).map((log) => {
+      const archivePhoto = parseArchivePayload(log);
+      return archivePhoto ? { ...log, archivePhoto } : log;
+    });
+    deleteArchiveItems(targets, `${targets.length} selected item${targets.length === 1 ? '' : 's'}`);
+  };
+
+  const clearArchiveType = async (type) => {
+    const labels = {
+      inspiration: 'all saved inspiration',
+      analysis: 'all room scans',
+      all: 'your entire archive',
+    };
+    if (!window.confirm(`Clear ${labels[type]}? This cannot be undone.`)) return;
+
+    setArchiveNotice('Clearing archive...');
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${API_BASE_URL}/api/sessions/user/${activeUser.uid}/clear?type=${type}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token || ''}` },
+      });
+      if (!response.ok) throw new Error(`Clear failed (${response.status})`);
+      const result = await response.json();
+      setLogs((current) => {
+        if (type === 'all') return [];
+        return current.filter((log) => (type === 'inspiration' ? log.goal !== 'INSPIRATION_SAVE' : log.goal === 'INSPIRATION_SAVE'));
+      });
+      setSelectedArchiveIds(new Set());
+      setSelectedSession(null);
+      setArchiveNotice(`Cleared ${result.count || 0} archive item${result.count === 1 ? '' : 's'}.`);
+    } catch (err) {
+      console.error('Archive clear failed:', err);
+      setArchiveNotice('Could not clear archive. Check the backend and try again.');
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ color: 'var(--accent)' }} className="mono">
@@ -148,12 +251,53 @@ export default function Vault({ user }) {
   }
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '28px' }}>
+    <div style={{ width: 'min(100%, 1320px)', margin: '0 auto', padding: '4px clamp(4px, 1.4vw, 18px) 24px' }}>
+      <div style={{ marginBottom: '28px', display: 'flex', justifyContent: 'space-between', gap: 18, alignItems: 'flex-end' }}>
+        <div>
         <h1 style={{ color: 'var(--accent)', fontSize: '2rem', marginBottom: '8px' }}>Archive</h1>
         <p style={{ opacity: 0.62, margin: 0 }}>
           Saved inspiration and past room analyses live together here.
         </p>
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <span style={{ padding: '8px 11px', border: '1px solid var(--glass-border)', borderRadius: 10, color: 'var(--text-muted)', fontSize: '0.76rem' }}>
+            {inspirationSaves.length} saved looks
+          </span>
+          <span style={{ padding: '8px 11px', border: '1px solid var(--glass-border)', borderRadius: 10, color: 'var(--text-muted)', fontSize: '0.76rem' }}>
+            {analysisSessions.length} room scans
+          </span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 22 }}>
+        <button
+          type="button"
+          className="ghost-btn"
+          onClick={() => {
+            setManageMode((current) => !current);
+            setSelectedArchiveIds(new Set());
+          }}
+          style={{ border: '1px solid var(--glass-border)', padding: '8px 12px' }}
+        >
+          {manageMode ? 'Done managing' : 'Manage archive'}
+        </button>
+        {manageMode && (
+          <>
+            <button type="button" className="ghost-btn" onClick={deleteSelectedArchiveItems} disabled={selectedArchiveIds.size === 0}>
+              Delete selected ({selectedArchiveIds.size})
+            </button>
+            <button type="button" className="ghost-btn" onClick={() => clearArchiveType('inspiration')} disabled={inspirationSaves.length === 0}>
+              Clear saved looks
+            </button>
+            <button type="button" className="ghost-btn" onClick={() => clearArchiveType('analysis')} disabled={analysisSessions.length === 0}>
+              Clear room scans
+            </button>
+            <button type="button" className="ghost-btn" onClick={() => clearArchiveType('all')} disabled={logs.length === 0}>
+              Clear all
+            </button>
+          </>
+        )}
+        {archiveNotice && <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{archiveNotice}</span>}
       </div>
 
       {logs.length === 0 ? (
@@ -186,7 +330,7 @@ export default function Vault({ user }) {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
                   gap: '16px',
                 }}
               >
@@ -200,6 +344,12 @@ export default function Vault({ user }) {
                       background: 'rgba(255,255,255,0.03)',
                     }}
                   >
+                    {manageMode && (
+                      <label style={{ position: 'absolute', top: 10, right: 10, zIndex: 2, padding: '6px 8px', borderRadius: 8, background: 'var(--glass)', border: '1px solid var(--glass-border)', fontSize: '0.72rem', display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input type="checkbox" checked={selectedArchiveIds.has(log.id)} onChange={() => toggleArchiveSelection(log.id)} />
+                        Select
+                      </label>
+                    )}
                     <img
                       src={log.archivePhoto.imageUrl}
                       alt={log.archivePhoto.title}
@@ -230,6 +380,11 @@ export default function Vault({ user }) {
                         >
                           Shop
                         </a>
+                        {manageMode && (
+                          <button type="button" onClick={() => deleteArchiveItems([log], 'this saved look')} style={{ border: 'none', background: 'transparent', color: 'var(--danger)', fontSize: '0.72rem', cursor: 'pointer', padding: 0 }}>
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </div>
                   </article>
@@ -277,6 +432,12 @@ export default function Vault({ user }) {
                     borderLeft: '4px solid var(--accent)',
                   }}
                 >
+                  {manageMode && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, alignSelf: 'flex-start', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      <input type="checkbox" checked={selectedArchiveIds.has(log.id)} onChange={() => toggleArchiveSelection(log.id)} />
+                      Select
+                    </label>
+                  )}
                   <div>
                     <span style={{ fontSize: '0.72rem', opacity: 0.46 }}>{log.date}</span>
                     <h4 style={{ margin: '8px 0', fontSize: '1rem' }}>{log.goal.toUpperCase()}</h4>
@@ -309,7 +470,27 @@ export default function Vault({ user }) {
                           cursor: 'pointer',
                         }}
                       >
-                        [ VIEW_RECREATED_SCENE ]
+                          [ VIEW_RECREATED_SCENE ]
+                        </button>
+                    )}
+                    {manageMode && (
+                      <button
+                        type="button"
+                        onClick={() => deleteArchiveItems([log], 'this room scan')}
+                        style={{
+                          display: 'inline-block',
+                          marginTop: '10px',
+                          marginLeft: '8px',
+                          fontSize: '0.7rem',
+                          color: 'var(--danger)',
+                          background: 'transparent',
+                          border: '1px solid var(--glass-border)',
+                          borderRadius: '8px',
+                          padding: '7px 10px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        DELETE
                       </button>
                     )}
                   </div>

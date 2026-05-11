@@ -47,6 +47,36 @@ body {
   transition: background 0.6s ease, color 0.4s ease;
 }
 
+html[data-text-size='small'] {
+  font-size: 14px;
+}
+
+html[data-text-size='medium'] {
+  font-size: 16px;
+}
+
+html[data-text-size='large'] {
+  font-size: 18px;
+}
+
+html[data-density='compact'] .glass-panel {
+  border-radius: 12px;
+}
+
+html[data-density='spacious'] .glass-panel {
+  border-radius: 20px;
+}
+
+html[data-density='compact'] .system-viewport > div > div {
+  gap: 8px !important;
+  padding: 8px !important;
+}
+
+html[data-density='spacious'] .system-viewport > div > div {
+  gap: 16px !important;
+  padding: 16px !important;
+}
+
 /* ═══ THE GLASS MATERIAL ═══ */
 .glass-panel {
   background: var(--glass);

@@ -69,6 +69,9 @@ export default function MainDashboard({ user }) {
         className="glass-panel"
         style={{
           flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch',
           position: 'relative',
           overflowY: 'auto',
           overflowX: 'hidden',

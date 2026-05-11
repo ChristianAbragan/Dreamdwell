@@ -471,12 +471,17 @@ function IdleView({ onGetStarted, user }) {
 
   return (
     <div style={{
-      flex: 1, display: 'flex', overflow: 'hidden',
+      flex: 1,
+      width: '100%',
+      minHeight: 0,
+      display: 'grid',
+      gridTemplateColumns: 'minmax(420px, 1.08fr) minmax(360px, 0.72fr)',
+      overflow: 'hidden',
       background: 'var(--bg-1)',
+      borderRadius: 10,
     }}>
       {/* ── LEFT: Full-bleed slideshow with centered text overlay ── */}
       <div style={{
-        flex: '0 0 62%',
         position: 'relative',
         overflow: 'hidden',
       }}>
@@ -538,10 +543,10 @@ function IdleView({ onGetStarted, user }) {
           position: 'absolute', inset: 0,
           display: 'flex', flexDirection: 'column',
           alignItems: 'flex-start', justifyContent: 'center',
-          padding: '0 48px',
+          padding: 'clamp(28px, 5vw, 64px)',
           zIndex: 3,
         }}>
-          <div style={{ maxWidth: 420 }}>
+          <div style={{ maxWidth: 460 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
               <div style={{
                 width: 8, height: 8, borderRadius: '50%',
@@ -551,26 +556,26 @@ function IdleView({ onGetStarted, user }) {
               <span style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '1.2px', color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase' }}>DreamDwell</span>
             </div>
             <h1 style={{
-              margin: '0 0 10px', fontSize: '2.4rem', fontWeight: 700,
-              color: 'white', letterSpacing: '-0.8px', lineHeight: 1.1,
+              margin: '0 0 12px', fontSize: 'clamp(2.4rem, 4vw, 4.1rem)', fontWeight: 750,
+              color: 'white', letterSpacing: 0, lineHeight: 1.02,
             }}>
               Your Room,<br />Analyzed.
             </h1>
             <p style={{
-              margin: '0 0 22px', fontSize: '0.88rem', color: 'rgba(255,255,255,0.72)',
-              lineHeight: 1.6, maxWidth: 340,
+              margin: '0 0 26px', fontSize: '0.98rem', color: 'rgba(255,255,255,0.78)',
+              lineHeight: 1.65, maxWidth: 390,
             }}>
               Upload a photo. AI detects furniture, suggests improvements, and links local shop prices.
             </p>
             <button
               className="btn-primary"
               onClick={onGetStarted}
-              style={{ padding: '13px 32px', fontSize: '0.9rem', borderRadius: 11 }}
+              style={{ padding: '14px 34px', fontSize: '0.92rem', borderRadius: 10 }}
             >
               Analyze a Room
             </button>
             {/* How it works */}
-            <div style={{ display: 'flex', marginTop: 28 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(88px, 1fr))', gap: 0, marginTop: 34, maxWidth: 410 }}>
               {[['01', 'Upload', 'Pick or snap'], ['02', 'Analyze', 'AI reads room'], ['03', 'Shop', 'Local links']].map(([n, l, s], i) => (
                 <div key={n} style={{ flex: 1, borderRight: i < 2 ? '1px solid rgba(255,255,255,0.18)' : 'none', paddingRight: 14 }}>
                   <div style={{ fontSize: '0.58rem', fontWeight: 700, color: 'rgba(255,255,255,0.5)', marginBottom: 1 }}>{n}</div>
@@ -585,7 +590,6 @@ function IdleView({ onGetStarted, user }) {
 
       {/* ── RIGHT: Archi Chat ── */}
       <div style={{
-        flex: 1,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -593,7 +597,7 @@ function IdleView({ onGetStarted, user }) {
         background: 'var(--bg-1)',
       }}>
         {/* Chat header */}
-        <div style={{ padding: '20px 24px 0', flexShrink: 0 }}>
+        <div style={{ padding: '26px 28px 0', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0 }} />
             <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.7px' }}>ASK ARCHI</span>
@@ -608,7 +612,7 @@ function IdleView({ onGetStarted, user }) {
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          padding: '14px 20px 20px',
+          padding: '16px 24px 24px',
           minHeight: 0,
           overflow: 'hidden',
         }}>
@@ -659,30 +663,31 @@ function SourceCaptureView({
           minHeight: 0,
           display: 'grid',
           gridTemplateColumns: hasSelection
-            ? 'minmax(230px, 0.42fr) minmax(320px, 1fr)'
+            ? 'minmax(170px, 220px) minmax(360px, 1fr)'
             : 'minmax(280px, 620px) minmax(0, 0fr)',
-          gap: hasSelection ? 18 : 0,
+          gap: hasSelection ? 20 : 0,
           alignItems: 'stretch',
           justifyContent: 'center',
           transition: 'grid-template-columns 0.45s ease, gap 0.45s ease',
         }}
       >
-        <section style={{ minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 18 }}>
+        <section style={{ minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: hasSelection ? 'flex-start' : 'center', gap: hasSelection ? 12 : 18, paddingTop: hasSelection ? 34 : 0 }}>
           <div>
-            <h2 style={{ margin: '0 0 8px', fontSize: hasSelection ? '1.1rem' : '1.45rem' }}>
+            <h2 style={{ margin: '0 0 8px', fontSize: hasSelection ? '1rem' : '1.45rem' }}>
               How do you want to scan?
             </h2>
-            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1.6 }}>
-              Pick webcam or upload. Your selected room image will slide in beside these options.
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: hasSelection ? '0.72rem' : '0.85rem', lineHeight: 1.55 }}>
+              {hasSelection ? 'Switch source anytime.' : 'Pick webcam or upload. Your selected room image will slide in beside these options.'}
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: hasSelection ? '1fr' : 'repeat(2, minmax(160px, 1fr))', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: hasSelection ? '1fr' : 'repeat(2, minmax(160px, 1fr))', gap: hasSelection ? 10 : 14 }}>
             <SourceCard
               icon={<WebcamIcon />}
               label="Use Webcam"
               description="Capture live view"
               active={inputMode === 'webcam'}
+              compact={hasSelection}
               onClick={() => onSelect('webcam')}
             />
             <SourceCard
@@ -690,6 +695,7 @@ function SourceCaptureView({
               label="Upload Photo"
               description="Choose from gallery"
               active={inputMode === 'upload'}
+              compact={hasSelection}
               onClick={() => onSelect('upload')}
             />
           </div>
@@ -698,6 +704,8 @@ function SourceCaptureView({
         <section
           style={{
             minWidth: 0,
+            display: 'flex',
+            minHeight: 0,
             overflow: 'hidden',
             opacity: hasSelection ? 1 : 0,
             transform: hasSelection ? 'translateX(0)' : 'translateX(32px)',
@@ -747,17 +755,26 @@ function SourceView({ onSelect, onBack }) {
   );
 }
 
-function SourceCard({ icon, label, description, active = false, onClick }) {
+function SourceCard({ icon, label, description, active = false, compact = false, onClick }) {
   return (
     <button
       onClick={onClick}
       style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
-        padding: '28px 40px', border: '1.5px solid var(--glass-border)',
-        borderRadius: 16,
+        display: 'flex',
+        flexDirection: compact ? 'row' : 'column',
+        alignItems: 'center',
+        justifyContent: compact ? 'flex-start' : 'center',
+        textAlign: compact ? 'left' : 'center',
+        gap: compact ? 10 : 10,
+        padding: compact ? '12px 14px' : '28px 40px',
+        border: '1.5px solid var(--glass-border)',
+        borderRadius: compact ? 12 : 16,
         background: active ? 'rgba(139,92,246,0.12)' : 'var(--surface)',
         color: active ? 'var(--accent)' : 'var(--text-muted)',
-        cursor: 'pointer', minWidth: 160, transition: 'all 0.2s',
+        cursor: 'pointer',
+        minWidth: compact ? 0 : 160,
+        minHeight: compact ? 68 : 178,
+        transition: 'all 0.2s',
         fontFamily: "'Space Grotesk', sans-serif",
         boxShadow: active ? '0 0 0 1px var(--accent) inset' : 'none',
       }}
@@ -772,9 +789,11 @@ function SourceCard({ icon, label, description, active = false, onClick }) {
         e.currentTarget.style.background = active ? 'rgba(139,92,246,0.12)' : 'var(--surface)';
       }}
     >
-      <span style={{ color: 'inherit' }}>{icon}</span>
-      <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{label}</span>
-      <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{description}</span>
+      <span style={{ color: 'inherit', display: 'flex', flexShrink: 0, transform: compact ? 'scale(0.78)' : 'none' }}>{icon}</span>
+      <span style={{ display: 'flex', flexDirection: 'column', gap: compact ? 2 : 8, minWidth: 0 }}>
+        <span style={{ fontSize: compact ? '0.78rem' : '0.9rem', fontWeight: 600 }}>{label}</span>
+        <span style={{ fontSize: compact ? '0.66rem' : '0.75rem', opacity: 0.7, lineHeight: 1.25 }}>{description}</span>
+      </span>
     </button>
   );
 }
@@ -812,7 +831,7 @@ function CaptureView({ imageDataUrl, inputMode, onAnalyze, onRetry, error, video
   }, [imageDataUrl]);
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 14, padding: '8px 0' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Step 2 of 2</span>
       </div>

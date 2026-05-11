@@ -6,6 +6,7 @@ import styles from '../../styles/AccountPages.module.css';
 export default function Settings() {
   const { isDarkMode, setIsDarkMode } = useTheme();
   const [activeTab, setActiveTab] = useState('interface');
+  const [saveNotice, setSaveNotice] = useState('');
   const [voiceSettings, setVoiceSettings] = useState({
     engine: 'Archi (Echo)',
     speed: 'Instant',
@@ -39,14 +40,19 @@ export default function Settings() {
 
   useEffect(() => {
     localStorage.setItem('dreamdwellVoiceSettings', JSON.stringify(voiceSettings));
+    setSaveNotice('Voice settings saved.');
   }, [voiceSettings]);
 
   useEffect(() => {
     localStorage.setItem('dreamdwellAiSettings', JSON.stringify(aiSettings));
+    setSaveNotice('Assistant settings saved.');
   }, [aiSettings]);
 
   useEffect(() => {
     localStorage.setItem('dreamdwellInterfaceSettings', JSON.stringify(interfaceSettings));
+    document.documentElement.dataset.density = interfaceSettings.density.toLowerCase();
+    document.documentElement.dataset.textSize = interfaceSettings.textSize.toLowerCase();
+    setSaveNotice('Interface settings saved.');
   }, [interfaceSettings]);
 
   const tabs = [
@@ -105,6 +111,7 @@ export default function Settings() {
           setInterfaceSettings={setInterfaceSettings}
         />
       )}
+      {saveNotice && <p style={{ margin: '14px 0 0', color: 'var(--accent)', fontWeight: 700 }}>{saveNotice}</p>}
     </div>
   );
 }
