@@ -1,0 +1,21 @@
+/* ═══ Core Animations ═══ */
+@keyframes spin-slow { 100% { transform: rotate(360deg); } }
+@keyframes spin-reverse { 100% { transform: rotate(-360deg); } }
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(176, 252, 206, 0.15); }
+  50% { box-shadow: 0 0 40px rgba(176, 252, 206, 0.3); }
+}
+
+[data-theme='light'] .core-glow {
+  box-shadow: 0 0 20px rgba(255, 109, 41, 0.15) !important;
+}
+
+.core-ring-1 { animation: spin-slow 20s linear infinite; }
+.core-ring-2 { animation: spin-reverse 15s linear infinite; }
+.core-ring-3 { animation: spin-slow 10s linear infinite; }
+
+.speaking .core-ring-1 { animation-duration: 5s; }
+.speaking .core-ring-2 { animation-duration: 3s; }
+.speaking .core-ring-3 { animation-duration: 2s; }
+.speaking .core-glow { animation: pulse-glow 1s ease-in-out infinite; }
+.listening .core-glow { animation: pulse-glow 3s ease-in-out infinite; }
