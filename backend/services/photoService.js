@@ -80,7 +80,7 @@ async function searchUnsplash({ query, style, room, mood, page = 1, perPage = 30
         tags: (photo.tags || []).map((t) => t.title).filter(Boolean),
         imageUrl: photo.urls.regular || photo.urls.small,
         description: photo.description || '',
-        shopUrl: `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(searchQuery)}`,
+        shopUrl: `https://www.lazada.com.ph/catalog/?q=${encodeURIComponent(searchQuery)}`,
         height: Math.max(200, aspectH),
         score: 0,
         matchReason: 'Live from Unsplash',
@@ -213,7 +213,7 @@ function buildLiveSearchPhotos({ query, room, style, mood, page, limit }) {
       description: query
         ? `A visual direction for "${query}" using ${styleLabel.toLowerCase()} ${roomLabel.toLowerCase()} cues.`
         : sourcePhoto.description || `Fresh ${styleLabel.toLowerCase()} ${roomLabel.toLowerCase()} inspiration for you.`,
-      shopUrl: `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(`${query || targetStyle + ' ' + targetRoom} furniture decor`)}`,
+      shopUrl: `https://www.lazada.com.ph/catalog/?q=${encodeURIComponent(`${query || targetStyle + ' ' + targetRoom} furniture decor`)}`,
       height: 420 + (Math.abs(seed) % 180),
       score: query ? 150 - index : 95 - index,
       matchReason: query ? `Search match: ${query}` : `Fresh ${styleLabel.toLowerCase()} ${roomLabel.toLowerCase()} direction.`,

@@ -28,34 +28,57 @@ const buildImageSrc = (imageUrl) => {
   return imageUrl;
 };
 
+const compactPrompt = (value = '', maxLength = 1200) =>
+  String(value).replace(/\s+/g, ' ').trim().slice(0, maxLength);
+
+const buildPollinationsImageUrl = (promptText = '') =>
+  `https://image.pollinations.ai/prompt/${encodeURIComponent(compactPrompt(promptText))}?width=1024&height=1024&nologo=true&seed=42`;
+
+const proxyImageUrl = (imageUrl) => {
+  if (!imageUrl || imageUrl.startsWith('data:image/')) return imageUrl;
+  if (!imageUrl.startsWith('https://image.pollinations.ai/')) return imageUrl;
+  return `${API_BASE_URL}/api/public/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+};
+
 const buildRecreatedSceneUrl = (log) => {
   const payload = parseAnalysisPayload(log);
-  const suggestions = (payload.suggestions || [])
-    .slice(0, 8)
-    .map((item) => `${item.item} at ${item.placementLabel || item.targetSurface || 'a suitable area'}`)
-    .join(', ');
-  const prompt = [
-    'realistic interior design render of the same analyzed room',
-    payload.analysis_summary || log.summary || '',
-    suggestions ? `add these design suggestions: ${suggestions}` : '',
-    'keep the room architecture, camera angle, windows, floor, and wall proportions consistent',
-  ].filter(Boolean).join('. ');
+  if (payload.source_recreation_prompt) {
+    return buildPollinationsImageUrl(payload.source_recreation_prompt);
+  }
 
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=768&nologo=true&enhance=true`;
+  const baseScene = payload.analysis_summary || log.summary || 'an empty room';
+  const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions : [];
+
+  const suggestionItems = suggestions
+    .slice(0, 8)
+    .map((item) => {
+      const placement = item.placementLabel || item.targetSurface || 'the room';
+      return `${item.item} anchored at ${placement}`;
+    })
+    .join(', ');
+
+  const promptText = suggestionItems
+    ? `A high-resolution architectural photograph of a room visually similar to the analyzed space, ${baseScene}, ${suggestionItems}, cohesive interior design synthesis, matching perspective and room proportions, realistic depth and occlusion, material and texture fidelity with matte wood, woven textiles, brushed metal, reflective glass, ceramic surfaces, unified natural lighting wrapping around existing and new objects, realistic contact shadows, style-consistent decor, architectural photography, soft diffused natural light, 8k resolution, photorealistic, shot on 35mm lens`
+    : `A high-resolution architectural photograph of a room visually similar to the analyzed space, ${baseScene}, matching perspective and room proportions, realistic depth, material and texture fidelity, unified natural lighting, architectural photography, soft diffused natural light, 8k resolution, photorealistic, shot on 35mm lens`;
+
+  console.log('Generated Pollinations prompt:', promptText);
+  return buildPollinationsImageUrl(promptText);
 };
 
 const getArchiveSceneImage = (log) => {
+  return proxyImageUrl(buildRecreatedSceneUrl(log));
+};
+
+const getArchiveSceneFallbacks = (log) => {
   const payload = parseAnalysisPayload(log);
-  if (payload.local_recreated_scene) {
-    return payload.local_recreated_scene;
-  }
-  if (payload.generated_scene_url) {
-    return payload.generated_scene_url;
-  }
-  if (payload.render_provider && log.imageUrl && !log.imageUrl.startsWith('data:image/')) {
-    return log.imageUrl;
-  }
-  return buildRecreatedSceneUrl(log);
+  const rebuilt = buildRecreatedSceneUrl(log);
+  return [
+    rebuilt,
+    payload.generated_scene_url && proxyImageUrl(payload.generated_scene_url),
+    payload.generated_scene_url,
+    payload.local_recreated_scene,
+    'https://placehold.co/900x900/111827/e5e7eb?text=Render+still+generating',
+  ].filter(Boolean);
 };
 
 const isOriginalScanImage = (log, imageUrl) => {
@@ -527,33 +550,6 @@ export default function Vault({ user }) {
                     Close
                   </button>
                   <h3 style={{ margin: '0 0 12px', color: 'var(--accent)' }}>Recreated Scene</h3>
-                  <img
-                    src={buildImageSrc(getArchiveSceneImage(selectedSession))}
-                    alt="Recreated room scene"
-                    loading="lazy"
-                    onError={(event) => {
-                      if (!event.currentTarget.dataset.retried) {
-                        event.currentTarget.dataset.retried = 'true';
-                        const retryUrl = getArchiveSceneImage(selectedSession);
-                        event.currentTarget.src = `${buildImageSrc(retryUrl)}${retryUrl.includes('?') ? '&' : '?'}retry=${Date.now()}`;
-                        return;
-                      }
-                      console.warn('Archive scene image failed to load', {
-                        imageUrl: selectedSession.imageUrl?.slice?.(0, 120),
-                      });
-                      event.currentTarget.src =
-                        'https://placehold.co/900x900/111827/e5e7eb?text=Render+still+generating';
-                    }}
-                    style={{
-                      width: '100%',
-                      aspectRatio: '1 / 1',
-                      objectFit: 'cover',
-                      borderRadius: '12px',
-                      display: 'block',
-                      marginBottom: '14px',
-                      background: 'var(--surface)',
-                    }}
-                  />
                   {(() => {
                     const payload = parseAnalysisPayload(selectedSession);
                     const added = Array.isArray(payload.added_elements)
@@ -563,6 +559,34 @@ export default function Vault({ user }) {
 
                     return (
                       <>
+                        <img
+                          key={selectedSession.id}
+                          src={buildImageSrc(getArchiveSceneImage(selectedSession))}
+                          alt="AI recreated room scene with suggestions"
+                          onError={(event) => {
+                            const fallbacks = getArchiveSceneFallbacks(selectedSession);
+                            const nextIndex = Number(event.currentTarget.dataset.fallbackIndex || 0);
+                            const nextUrl = fallbacks[nextIndex];
+
+                            if (nextUrl) {
+                              event.currentTarget.dataset.fallbackIndex = String(nextIndex + 1);
+                              event.currentTarget.src = buildImageSrc(nextUrl);
+                              return;
+                            }
+                            console.warn('Archive scene image failed to load', {
+                              imageUrl: selectedSession.imageUrl?.slice?.(0, 120),
+                            });
+                          }}
+                          style={{
+                            width: '100%',
+                            aspectRatio: '1 / 1',
+                            objectFit: 'cover',
+                            borderRadius: '12px',
+                            display: 'block',
+                            marginBottom: '14px',
+                            background: 'var(--surface)',
+                          }}
+                        />
                         {payload.analysis_summary && (
                           <>
                             <h4 style={{ margin: '12px 0 6px', fontSize: '0.78rem' }}>What was analyzed</h4>
@@ -573,7 +597,7 @@ export default function Vault({ user }) {
                         )}
                         {isOriginalScanImage(selectedSession, selectedSession.imageUrl) && (
                           <p style={{ margin: '10px 0 0', fontSize: '0.72rem', lineHeight: 1.45, color: 'var(--text-muted)' }}>
-                            DreamDwell is showing a generated recreated render above. The original scan is kept only as fallback data and is not used as the recreated scene.
+                            DreamDwell is showing an AI recreated render based on the saved analysis prompt. It keeps only a visual glimpse of the original room rather than an exact replica.
                           </p>
                         )}
                         {(payload.render_provider || payload.render_warning) && (

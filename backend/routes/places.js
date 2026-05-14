@@ -19,12 +19,12 @@ const haversineKm = (a, b) => {
   return radiusKm * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 };
 
-const buildMapsUrl = (placeId, fallbackQuery) =>
+const buildGoogleMapsUrl = (placeId, fallbackQuery) =>
   placeId
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fallbackQuery)}&query_place_id=${placeId}`
     : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fallbackQuery)}`;
 
-const buildRouteUrl = (origin, destination, fallbackQuery) => {
+const buildGoogleRouteUrl = (origin, destination, fallbackQuery) => {
   const dest = destination
     ? `${destination.lat},${destination.lng}`
     : fallbackQuery;
@@ -169,6 +169,104 @@ const loadFreeMapPlaces = async ({ origin, query, radius }) => {
   return { places: [], provider: 'OpenStreetMap', failures };
 };
 
+const loadGooglePlaces = async ({ origin, query, radius, apiKey }) => {
+  const textQuery = `${query} furniture hardware store`;
+  const url = new URL('https://maps.googleapis.com/maps/api/place/textsearch/json');
+  url.searchParams.set('query', textQuery);
+  url.searchParams.set('location', `${origin.lat},${origin.lng}`);
+  url.searchParams.set('radius', String(radius));
+  url.searchParams.set('key', apiKey);
+
+  const response = await fetch(url);
+  const payload = await response.json();
+
+  if (!response.ok || !['OK', 'ZERO_RESULTS'].includes(payload.status)) {
+    const message = payload.error_message || payload.status || 'Google Places lookup failed.';
+    const error = new Error(message);
+    error.status = payload.status;
+    throw error;
+  }
+
+  const places = (payload.results || []).slice(0, 6).map((place) => {
+    const destination = place.geometry?.location
+      ? {
+          lat: place.geometry.location.lat,
+          lng: place.geometry.location.lng,
+        }
+      : null;
+    const distanceKm = destination ? haversineKm(origin, destination) : null;
+    const fallbackQuery = `${place.name || query} ${place.formatted_address || ''}`.trim();
+
+    return {
+      placeId: place.place_id,
+      provider: 'Google Maps',
+      name: place.name,
+      address: place.formatted_address,
+      rating: place.rating || null,
+      userRatingsTotal: place.user_ratings_total || 0,
+      openNow: place.opening_hours?.open_now ?? null,
+      lat: destination?.lat ?? null,
+      lng: destination?.lng ?? null,
+      distanceKm: distanceKm === null ? null : Number(distanceKm.toFixed(2)),
+      mapsUrl: buildGoogleMapsUrl(place.place_id, fallbackQuery),
+      routeUrl: buildGoogleRouteUrl(origin, destination, fallbackQuery),
+    };
+  });
+
+  return places.sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
+};
+
+const formatPhp = (amount) => `PHP ${Math.round(amount).toLocaleString('en-PH')}`;
+
+const buildOnlineStoreProducts = ({ query = 'furniture', price = 2500 }) => {
+  const cleanQuery = String(query || 'furniture').replace(/\s+/g, ' ').trim();
+  const basePrice = Math.max(350, Number(price) || 2500);
+  const stores = [
+    {
+      store: 'IKEA Philippines',
+      multiplier: 1.18,
+      url: `https://www.ikea.com/ph/en/search/?q=${encodeURIComponent(cleanQuery)}`,
+      imageUrl: 'https://logo.clearbit.com/ikea.com',
+    },
+    {
+      store: 'Mandaue Foam',
+      multiplier: 0.95,
+      url: `https://mandauefoam.ph/search?q=${encodeURIComponent(cleanQuery)}`,
+      imageUrl: 'https://logo.clearbit.com/mandauefoam.ph',
+    },
+    {
+      store: 'AllHome',
+      multiplier: 1.08,
+      url: `https://www.allhome.com.ph/search?q=${encodeURIComponent(cleanQuery)}`,
+      imageUrl: 'https://logo.clearbit.com/allhome.com.ph',
+    },
+    {
+      store: 'Lazada Philippines',
+      multiplier: 0.88,
+      url: `https://www.lazada.com.ph/catalog/?q=${encodeURIComponent(cleanQuery)}`,
+      imageUrl: 'https://logo.clearbit.com/lazada.com.ph',
+    },
+    {
+      store: 'Shopee Philippines',
+      multiplier: 0.82,
+      url: `https://shopee.ph/search?keyword=${encodeURIComponent(cleanQuery)}`,
+      imageUrl: 'https://logo.clearbit.com/shopee.ph',
+    },
+  ];
+
+  return stores.map((store, index) => {
+    const productName = `${cleanQuery} - ${store.store}`;
+    return {
+      id: `${store.store.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${index}`,
+      productName,
+      store: store.store,
+      price: formatPhp(basePrice * store.multiplier),
+      imageUrl: store.imageUrl,
+      url: store.url,
+    };
+  });
+};
+
 router.get('/nearby', async (req, res) => {
   res.set('Cache-Control', 'no-store');
 
@@ -177,111 +275,58 @@ router.get('/nearby', async (req, res) => {
   const query = String(req.query.query || 'furniture hardware store').slice(0, 120);
   const radius = Math.min(Math.max(toNumber(req.query.radius) || 8000, 1000), 30000);
   const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
-
   if (lat === null || lng === null) {
     return res.status(400).json({ error: 'lat and lng are required.' });
   }
 
   const origin = { lat, lng };
-  const textQuery = `${query} furniture hardware store`;
-
-  if (!apiKey) {
-    try {
-      const { places, provider } = await loadFreeMapPlaces({ origin, query, radius });
-      return res.json({
-        query,
-        origin,
-        provider,
-        notice: places.length
-          ? `Using free ${provider} store results.`
-          : 'No free map store results found. Use the search link below.',
-        places,
-      });
-    } catch (error) {
-      console.error('Overpass fallback error:', error);
-      return res.status(502).json({
-        error: 'Free nearby store lookup is unavailable right now.',
-        userMessage: 'Free map lookup is unavailable. Use the search link below.',
-      });
-    }
-  }
-
-  const url = new URL('https://maps.googleapis.com/maps/api/place/textsearch/json');
-  url.searchParams.set('query', textQuery);
-  url.searchParams.set('location', `${lat},${lng}`);
-  url.searchParams.set('radius', String(radius));
-  url.searchParams.set('key', apiKey);
 
   try {
-    const response = await fetch(url);
-    const payload = await response.json();
-
-    if (!response.ok || !['OK', 'ZERO_RESULTS'].includes(payload.status)) {
-      const apiDenied = payload.status === 'REQUEST_DENIED' || /not authorized|API key/i.test(payload.error_message || '');
-      if (apiDenied) {
-        try {
-          const { places, provider } = await loadFreeMapPlaces({ origin, query, radius });
-          return res.json({
-            query,
-            origin,
-            provider,
-            places,
-            notice: places.length
-              ? `Google Places is not enabled, so DreamDwell used free ${provider} store results.`
-              : 'Google Places is not enabled and no free map stores were found. Use the search link below.',
-          });
-        } catch (error) {
-          console.error('Overpass fallback error:', error);
-          return res.json({
-            query,
-            origin,
-            places: [],
-            notice: 'Google Places is not enabled and the free map fallback is unavailable. Use the search link below.',
-            error: payload.status || 'Places lookup disabled.',
-          });
-        }
+    if (apiKey) {
+      try {
+        const places = await loadGooglePlaces({ origin, query, radius, apiKey });
+        return res.json({
+          query,
+          origin,
+          provider: 'Google Maps',
+          notice: places.length
+            ? 'Using Google Maps nearby store results.'
+            : 'No Google Maps store results were found nearby. Try the online store list instead.',
+          places,
+        });
+      } catch (error) {
+        console.warn('Google Places fallback to OpenStreetMap:', error.message);
       }
-
-      return res.status(502).json({
-        error: payload.error_message || payload.status || 'Places lookup failed.',
-        userMessage: 'Nearby store lookup is unavailable right now. Use the search link below.',
-      });
     }
 
-    const places = (payload.results || []).slice(0, 6).map((place) => {
-      const destination = place.geometry?.location
-        ? {
-            lat: place.geometry.location.lat,
-            lng: place.geometry.location.lng,
-          }
-        : null;
-      const distanceKm = destination ? haversineKm(origin, destination) : null;
-      const fallbackQuery = `${place.name || query} ${place.formatted_address || ''}`.trim();
-
-      return {
-        placeId: place.place_id,
-        name: place.name,
-        address: place.formatted_address,
-        rating: place.rating || null,
-        userRatingsTotal: place.user_ratings_total || 0,
-        openNow: place.opening_hours?.open_now ?? null,
-        lat: destination?.lat ?? null,
-        lng: destination?.lng ?? null,
-        distanceKm: distanceKm === null ? null : Number(distanceKm.toFixed(2)),
-        mapsUrl: buildMapsUrl(place.place_id, fallbackQuery),
-        routeUrl: destination
-          ? buildRouteUrl(origin, destination, fallbackQuery)
-          : buildRouteUrl(origin, null, fallbackQuery),
-      };
+    const { places, provider } = await loadFreeMapPlaces({ origin, query, radius });
+    return res.json({
+      query,
+      origin,
+      provider,
+      notice: places.length
+        ? `Google Maps lookup was unavailable, so using ${provider} store results.`
+        : 'No Google Maps or OpenStreetMap store results were found nearby. Try the online store list instead.',
+      places,
     });
-
-    places.sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
-
-    res.json({ query, origin, places });
   } catch (error) {
     console.error('Places nearby error:', error);
-    res.status(500).json({ error: 'Could not load nearby stores.' });
+    res.status(502).json({
+      error: 'Could not load nearby stores.',
+      userMessage: 'Nearby store lookup is unavailable right now. Try the online store list instead.',
+    });
   }
+});
+
+router.get('/online-stores', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const query = String(req.query.query || 'furniture').slice(0, 120);
+  const price = toNumber(req.query.price) || 2500;
+
+  res.json({
+    query,
+    products: buildOnlineStoreProducts({ query, price }),
+  });
 });
 
 export default router;

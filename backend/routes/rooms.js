@@ -75,6 +75,101 @@ const buildLocalRecreatedScene = ({ analysis = '', suggestions = [], roomType = 
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 };
 
+const compactPrompt = (value = '', maxLength = 1200) =>
+  String(value).replace(/\s+/g, ' ').trim().slice(0, maxLength);
+
+const buildFallbackRecreationPrompt = ({ analysis = '', suggestions = [] }) => {
+  const suggestionItems = suggestions
+    .slice(0, 8)
+    .map((item) => {
+      const placement = item.placementLabel || item.targetSurface || 'the room';
+      const reason = item.reason ? `, suggested because ${item.reason}` : '';
+      return `${item.item} anchored at ${placement}${reason}`;
+    })
+    .join(', ');
+
+  const base = analysis || 'a photographed residential room with similar architecture, furniture, textures, light direction, floor plane, walls, windows, and current layout';
+
+  return suggestionItems
+    ? `A high-resolution architectural photograph of a room visually similar to the analyzed space, ${base}, ${suggestionItems}, cohesive interior design synthesis, matching perspective and room proportions, realistic depth and occlusion, material and texture fidelity with matte wood, woven textiles, brushed metal, reflective glass, ceramic surfaces, unified natural lighting wrapping around existing and new objects, realistic contact shadows, style-consistent decor, architectural photography, soft diffused natural light, 8k resolution, photorealistic, shot on 35mm lens`
+    : `A high-resolution architectural photograph of a room visually similar to the analyzed space, ${base}, matching perspective and room proportions, realistic depth, material and texture fidelity, unified natural lighting, architectural photography, soft diffused natural light, 8k resolution, photorealistic, shot on 35mm lens`;
+};
+
+const buildPollinationsUrl = (promptText = '') =>
+  `https://image.pollinations.ai/prompt/${encodeURIComponent(compactPrompt(promptText))}?width=1024&height=1024&nologo=true&seed=42`;
+
+const generateRecreationPrompt = async ({ parsed, geometry, suggestions }) => {
+  const baseScene = [
+    parsed.analysis_summary || parsed.explanation || '',
+    parsed.visual_prompt ? `Visual notes: ${parsed.visual_prompt}` : '',
+    parsed.source_recreation_prompt ? `Source preservation notes: ${parsed.source_recreation_prompt}` : '',
+    geometry?.inferredRoomType ? `Inferred room type: ${geometry.inferredRoomType}.` : '',
+    geometry?.perspective ? `Camera perspective: ${geometry.perspective}.` : '',
+  ].filter(Boolean).join('\n');
+
+  const designSuggestions = suggestions.map((item, index) => ({
+    number: index + 1,
+    item: item.item,
+    placement: item.placementLabel || item.targetSurface || item.zone,
+    reason: item.reason,
+    price_php: item.price_php,
+    anchor_points_percent: item.points,
+  }));
+
+  const fallbackPrompt = buildFallbackRecreationPrompt({
+    analysis: baseScene,
+    suggestions,
+  });
+
+  try {
+    const completion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: 'system',
+          content: `Role: You are a master architectural visualization prompt engineer, specializing in hyper-realistic interior design synthesis. Your task is to generate a single, highly detailed, comma-separated text-to-image prompt optimized for advanced diffusion models.
+
+Task: You will be provided with three dynamic inputs from our analysis pipeline:
+[Base Scene Analysis]: The current state of the room. This includes architecture, window placements, lighting sources, and any existing furniture, decor, or textures.
+[Modification Intent]: The user's goal, such as add new items, replace existing items, or complete redesign.
+[Design Suggestions & Spatial Anchors]: The new items to introduce, along with explicit instructions on where they go relative to the architecture or the existing furniture.
+
+Rules for the Output Prompt:
+* Cohesive Synthesis: Do not list the old and new items separately. Weave them together into a single, photorealistic snapshot. The new items must feel naturally integrated into the existing space.
+* Spatial Awareness: Pay strict attention to spatial anchors. If a suggestion is "on the side table," ensure the side table from the Base Scene is described with the new item resting on it. Address occlusion, such as partially obscuring the window.
+* Material & Texture Fidelity: Describe both existing and new items with extreme material specificity, such as matte walnut wood, slubby olive linen, brushed brass, reflective glass.
+* Unified Lighting: Describe how the primary light source interacts with the entire scene. Note how light wraps around the new objects or casts shadows onto existing ones.
+* Style Consistency: Ensure the new suggestions match or complement the aesthetic established in the Base Scene unless instructed otherwise.
+* Formatting: Return only the final, comma-separated image generation prompt. Include photographic modifiers at the end, such as architectural photography, soft diffused natural light, 8k resolution, photorealistic, shot on 35mm lens. Do not include markdown, conversational text, or prefixes.`,
+        },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            base_scene_analysis: baseScene,
+            modification_intent: 'Keep a clear glimpse of similarity to the analyzed room architecture, camera angle, layout, lighting, and visible furniture. Add the suggested decor and furniture items naturally.',
+            design_suggestions_and_spatial_anchors: designSuggestions,
+          }),
+        },
+      ],
+      model: 'llama-3.3-70b-versatile',
+      temperature: 0.35,
+    });
+
+    return compactPrompt(completion.choices[0].message.content || fallbackPrompt);
+  } catch (error) {
+    console.error('Recreation prompt generation failed:', error.message);
+    return compactPrompt(fallbackPrompt);
+  }
+};
+
+const generateAISuggestions = (analysis, roomType) => {
+  // Placeholder for AI suggestion generation logic
+  return [
+    { item: 'AI-generated Sofa', targetSurface: 'floor' },
+    { item: 'AI-generated Painting', targetSurface: 'wall' },
+    { item: 'AI-generated Rug', targetSurface: 'floor' },
+  ];
+};
+
 // POST /api/rooms/audit-room
 router.post('/audit-room', async (req, res) => {
   const { imageBase64, city = 'Cagayan De Oro', profile = {} } = req.body;
@@ -148,6 +243,12 @@ JSON only: explanation, analysis_summary, added_elements, audit, suggestions[6-8
       detectedFurniture,
     });
 
+    const recreationPrompt = await generateRecreationPrompt({
+      parsed,
+      geometry,
+      suggestions,
+    });
+
     res.json({
       ...parsed,
       geometry,
@@ -155,9 +256,11 @@ JSON only: explanation, analysis_summary, added_elements, audit, suggestions[6-8
       zones,
       local_recreated_scene: buildLocalRecreatedScene({
         analysis: parsed.analysis_summary || parsed.explanation,
-        suggestions,
+        suggestions: generateAISuggestions(parsed.analysis_summary || parsed.explanation, geometry.inferredRoomType),
         roomType: geometry.inferredRoomType,
       }),
+      source_recreation_prompt: recreationPrompt,
+      generated_scene_url: buildPollinationsUrl(recreationPrompt),
     });
   } catch (error) {
     console.error('Audit-room error:', error);
@@ -203,4 +306,3 @@ router.post('/generate-blueprint', async (req, res) => {
 });
 
 export default router;
-
