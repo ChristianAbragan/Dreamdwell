@@ -8,8 +8,13 @@ export function sanitizeSuggestions(
   { city = 'Cagayan De Oro', roomType = 'room', detectedFurniture = [] } = {}
 ) {
   const normalizePrice = (val) => {
-    const num = parseFloat(String(val).replace(/[^0-9.]/g, ''));
-    return Number.isFinite(num) ? Math.round(num) : null;
+    const text = String(val || '').replace(/,/g, '');
+    const numbers = text.match(/\d+(?:\.\d+)?/g)?.map(Number).filter(Number.isFinite) || [];
+    if (!numbers.length) return null;
+    if (numbers.length >= 2 && /-|to|–|—/i.test(text)) {
+      return Math.round((numbers[0] + numbers[1]) / 2);
+    }
+    return Math.round(numbers[0]);
   };
 
   const cityMultiplier = {
@@ -26,7 +31,7 @@ export function sanitizeSuggestions(
     const basePrice = normalizePrice(s.price || s.price_php || s.peso) || 2500;
     const pricePhp = Math.round(basePrice * cityMultiplier);
     const zone = s.zone || s.targetSurface || _inferZone(item, zones);
-    const shopQuery = encodeURIComponent(`${item} furniture hardware store ${city}`);
+    const shopQuery = encodeURIComponent(`${item} furniture decor ${city}`);
 
     return {
       item,
@@ -34,7 +39,7 @@ export function sanitizeSuggestions(
       price_php: `PHP ${pricePhp.toLocaleString()}`,
       price_value: pricePhp,
       distance: String(s.distance || 'Nearby store search'),
-      shop_url: s.shop_url || s.url || s.link || `https://www.google.com/search?q=${shopQuery}`,
+      shop_url: s.shop_url || s.url || s.link || `https://www.openstreetmap.org/search?query=${shopQuery}`,
       roomType,
       zone,
       targetSurface: s.targetSurface || zone,

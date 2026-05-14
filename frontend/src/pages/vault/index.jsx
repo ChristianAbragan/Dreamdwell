@@ -28,34 +28,57 @@ const buildImageSrc = (imageUrl) => {
   return imageUrl;
 };
 
+const compactPrompt = (value = '', maxLength = 1200) =>
+  String(value).replace(/\s+/g, ' ').trim().slice(0, maxLength);
+
+const buildPollinationsImageUrl = (promptText = '') =>
+  `https://image.pollinations.ai/prompt/${encodeURIComponent(compactPrompt(promptText))}?width=1024&height=1024&nologo=true&seed=42`;
+
+const proxyImageUrl = (imageUrl) => {
+  if (!imageUrl || imageUrl.startsWith('data:image/')) return imageUrl;
+  if (!imageUrl.startsWith('https://image.pollinations.ai/')) return imageUrl;
+  return `${API_BASE_URL}/api/public/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+};
+
 const buildRecreatedSceneUrl = (log) => {
   const payload = parseAnalysisPayload(log);
-  const suggestions = (payload.suggestions || [])
-    .slice(0, 8)
-    .map((item) => `${item.item} at ${item.placementLabel || item.targetSurface || 'a suitable area'}`)
-    .join(', ');
-  const prompt = [
-    'realistic interior design render of the same analyzed room',
-    payload.analysis_summary || log.summary || '',
-    suggestions ? `add these design suggestions: ${suggestions}` : '',
-    'keep the room architecture, camera angle, windows, floor, and wall proportions consistent',
-  ].filter(Boolean).join('. ');
+  if (payload.source_recreation_prompt) {
+    return buildPollinationsImageUrl(payload.source_recreation_prompt);
+  }
 
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=768&nologo=true&enhance=true`;
+  const baseScene = payload.analysis_summary || log.summary || 'an empty room';
+  const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions : [];
+
+  const suggestionItems = suggestions
+    .slice(0, 8)
+    .map((item) => {
+      const placement = item.placementLabel || item.targetSurface || 'the room';
+      return `${item.item} anchored at ${placement}`;
+    })
+    .join(', ');
+
+  const promptText = suggestionItems
+    ? `A high-resolution architectural photograph of a room visually similar to the analyzed space, ${baseScene}, ${suggestionItems}, cohesive interior design synthesis, matching perspective and room proportions, realistic depth and occlusion, material and texture fidelity with matte wood, woven textiles, brushed metal, reflective glass, ceramic surfaces, unified natural lighting wrapping around existing and new objects, realistic contact shadows, style-consistent decor, architectural photography, soft diffused natural light, 8k resolution, photorealistic, shot on 35mm lens`
+    : `A high-resolution architectural photograph of a room visually similar to the analyzed space, ${baseScene}, matching perspective and room proportions, realistic depth, material and texture fidelity, unified natural lighting, architectural photography, soft diffused natural light, 8k resolution, photorealistic, shot on 35mm lens`;
+
+  console.log('Generated Pollinations prompt:', promptText);
+  return buildPollinationsImageUrl(promptText);
 };
 
 const getArchiveSceneImage = (log) => {
+  return proxyImageUrl(buildRecreatedSceneUrl(log));
+};
+
+const getArchiveSceneFallbacks = (log) => {
   const payload = parseAnalysisPayload(log);
-  if (payload.local_recreated_scene) {
-    return payload.local_recreated_scene;
-  }
-  if (payload.generated_scene_url) {
-    return payload.generated_scene_url;
-  }
-  if (payload.render_provider && log.imageUrl && !log.imageUrl.startsWith('data:image/')) {
-    return log.imageUrl;
-  }
-  return buildRecreatedSceneUrl(log);
+  const rebuilt = buildRecreatedSceneUrl(log);
+  return [
+    rebuilt,
+    payload.generated_scene_url && proxyImageUrl(payload.generated_scene_url),
+    payload.generated_scene_url,
+    payload.local_recreated_scene,
+    'https://placehold.co/900x900/111827/e5e7eb?text=Render+still+generating',
+  ].filter(Boolean);
 };
 
 const isOriginalScanImage = (log, imageUrl) => {
@@ -70,6 +93,9 @@ export default function Vault({ user }) {
   const { refreshToken } = authContext;
   const [logs, setLogs] = useState([]);
   const [selectedSession, setSelectedSession] = useState(null);
+  const [selectedArchiveIds, setSelectedArchiveIds] = useState(new Set());
+  const [manageMode, setManageMode] = useState(false);
+  const [archiveNotice, setArchiveNotice] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -139,6 +165,106 @@ export default function Vault({ user }) {
     };
   }, [logs]);
 
+  const getAuthToken = async () => {
+    if (authContext.refreshToken) return authContext.refreshToken();
+    return activeUser?.getIdToken ? activeUser.getIdToken() : activeUser?.accessToken;
+  };
+
+  const toggleArchiveSelection = (id) => {
+    setSelectedArchiveIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const deleteArchiveItems = async (items, label = 'selected items') => {
+    const targets = items.filter(Boolean);
+    if (!targets.length) return;
+    if (!window.confirm(`Delete ${label} from your archive? This cannot be undone.`)) return;
+
+    setArchiveNotice('Deleting archive items...');
+    try {
+      const token = await getAuthToken();
+      const deletedIds = [];
+      await Promise.all(targets.map(async (item) => {
+        const response = await fetch(`${API_BASE_URL}/api/sessions/${item.id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token || ''}` },
+        });
+
+        if (response.ok) {
+          deletedIds.push(item.id);
+          return response.json();
+        }
+
+        if (item.goal === 'INSPIRATION_SAVE' && item.archivePhoto?.photoId) {
+          const fallback = await fetch(`${API_BASE_URL}/api/photos/${item.archivePhoto.photoId}/save`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token || ''}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ saved: false, userId: activeUser.uid, photo: item.archivePhoto }),
+          });
+          if (fallback.ok) {
+            deletedIds.push(item.id);
+            return fallback.json();
+          }
+        }
+
+        throw new Error(`Delete failed (${response.status})`);
+      }));
+
+      setLogs((current) => current.filter((log) => !deletedIds.includes(log.id)));
+      setSelectedArchiveIds(new Set());
+      if (selectedSession && deletedIds.includes(selectedSession.id)) setSelectedSession(null);
+      setArchiveNotice(`Deleted ${deletedIds.length} archive item${deletedIds.length === 1 ? '' : 's'}.`);
+    } catch (err) {
+      console.error('Archive delete failed:', err);
+      setArchiveNotice('Could not delete archive items. Restart the backend if it is still running old routes, then try again.');
+    }
+  };
+
+  const deleteSelectedArchiveItems = () => {
+    const targets = logs.filter((log) => selectedArchiveIds.has(log.id)).map((log) => {
+      const archivePhoto = parseArchivePayload(log);
+      return archivePhoto ? { ...log, archivePhoto } : log;
+    });
+    deleteArchiveItems(targets, `${targets.length} selected item${targets.length === 1 ? '' : 's'}`);
+  };
+
+  const clearArchiveType = async (type) => {
+    const labels = {
+      inspiration: 'all saved inspiration',
+      analysis: 'all room scans',
+      all: 'your entire archive',
+    };
+    if (!window.confirm(`Clear ${labels[type]}? This cannot be undone.`)) return;
+
+    setArchiveNotice('Clearing archive...');
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${API_BASE_URL}/api/sessions/user/${activeUser.uid}/clear?type=${type}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token || ''}` },
+      });
+      if (!response.ok) throw new Error(`Clear failed (${response.status})`);
+      const result = await response.json();
+      setLogs((current) => {
+        if (type === 'all') return [];
+        return current.filter((log) => (type === 'inspiration' ? log.goal !== 'INSPIRATION_SAVE' : log.goal === 'INSPIRATION_SAVE'));
+      });
+      setSelectedArchiveIds(new Set());
+      setSelectedSession(null);
+      setArchiveNotice(`Cleared ${result.count || 0} archive item${result.count === 1 ? '' : 's'}.`);
+    } catch (err) {
+      console.error('Archive clear failed:', err);
+      setArchiveNotice('Could not clear archive. Check the backend and try again.');
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ color: 'var(--accent)' }} className="mono">
@@ -148,12 +274,53 @@ export default function Vault({ user }) {
   }
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '28px' }}>
+    <div style={{ width: 'min(100%, 1320px)', margin: '0 auto', padding: '4px clamp(4px, 1.4vw, 18px) 24px' }}>
+      <div style={{ marginBottom: '28px', display: 'flex', justifyContent: 'space-between', gap: 18, alignItems: 'flex-end' }}>
+        <div>
         <h1 style={{ color: 'var(--accent)', fontSize: '2rem', marginBottom: '8px' }}>Archive</h1>
         <p style={{ opacity: 0.62, margin: 0 }}>
           Saved inspiration and past room analyses live together here.
         </p>
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <span style={{ padding: '8px 11px', border: '1px solid var(--glass-border)', borderRadius: 10, color: 'var(--text-muted)', fontSize: '0.76rem' }}>
+            {inspirationSaves.length} saved looks
+          </span>
+          <span style={{ padding: '8px 11px', border: '1px solid var(--glass-border)', borderRadius: 10, color: 'var(--text-muted)', fontSize: '0.76rem' }}>
+            {analysisSessions.length} room scans
+          </span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 22 }}>
+        <button
+          type="button"
+          className="ghost-btn"
+          onClick={() => {
+            setManageMode((current) => !current);
+            setSelectedArchiveIds(new Set());
+          }}
+          style={{ border: '1px solid var(--glass-border)', padding: '8px 12px' }}
+        >
+          {manageMode ? 'Done managing' : 'Manage archive'}
+        </button>
+        {manageMode && (
+          <>
+            <button type="button" className="ghost-btn" onClick={deleteSelectedArchiveItems} disabled={selectedArchiveIds.size === 0}>
+              Delete selected ({selectedArchiveIds.size})
+            </button>
+            <button type="button" className="ghost-btn" onClick={() => clearArchiveType('inspiration')} disabled={inspirationSaves.length === 0}>
+              Clear saved looks
+            </button>
+            <button type="button" className="ghost-btn" onClick={() => clearArchiveType('analysis')} disabled={analysisSessions.length === 0}>
+              Clear room scans
+            </button>
+            <button type="button" className="ghost-btn" onClick={() => clearArchiveType('all')} disabled={logs.length === 0}>
+              Clear all
+            </button>
+          </>
+        )}
+        {archiveNotice && <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{archiveNotice}</span>}
       </div>
 
       {logs.length === 0 ? (
@@ -186,7 +353,7 @@ export default function Vault({ user }) {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
                   gap: '16px',
                 }}
               >
@@ -200,6 +367,12 @@ export default function Vault({ user }) {
                       background: 'rgba(255,255,255,0.03)',
                     }}
                   >
+                    {manageMode && (
+                      <label style={{ position: 'absolute', top: 10, right: 10, zIndex: 2, padding: '6px 8px', borderRadius: 8, background: 'var(--glass)', border: '1px solid var(--glass-border)', fontSize: '0.72rem', display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input type="checkbox" checked={selectedArchiveIds.has(log.id)} onChange={() => toggleArchiveSelection(log.id)} />
+                        Select
+                      </label>
+                    )}
                     <img
                       src={log.archivePhoto.imageUrl}
                       alt={log.archivePhoto.title}
@@ -230,6 +403,11 @@ export default function Vault({ user }) {
                         >
                           Shop
                         </a>
+                        {manageMode && (
+                          <button type="button" onClick={() => deleteArchiveItems([log], 'this saved look')} style={{ border: 'none', background: 'transparent', color: 'var(--danger)', fontSize: '0.72rem', cursor: 'pointer', padding: 0 }}>
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </div>
                   </article>
@@ -277,6 +455,12 @@ export default function Vault({ user }) {
                     borderLeft: '4px solid var(--accent)',
                   }}
                 >
+                  {manageMode && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, alignSelf: 'flex-start', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      <input type="checkbox" checked={selectedArchiveIds.has(log.id)} onChange={() => toggleArchiveSelection(log.id)} />
+                      Select
+                    </label>
+                  )}
                   <div>
                     <span style={{ fontSize: '0.72rem', opacity: 0.46 }}>{log.date}</span>
                     <h4 style={{ margin: '8px 0', fontSize: '1rem' }}>{log.goal.toUpperCase()}</h4>
@@ -309,7 +493,27 @@ export default function Vault({ user }) {
                           cursor: 'pointer',
                         }}
                       >
-                        [ VIEW_RECREATED_SCENE ]
+                          [ VIEW_RECREATED_SCENE ]
+                        </button>
+                    )}
+                    {manageMode && (
+                      <button
+                        type="button"
+                        onClick={() => deleteArchiveItems([log], 'this room scan')}
+                        style={{
+                          display: 'inline-block',
+                          marginTop: '10px',
+                          marginLeft: '8px',
+                          fontSize: '0.7rem',
+                          color: 'var(--danger)',
+                          background: 'transparent',
+                          border: '1px solid var(--glass-border)',
+                          borderRadius: '8px',
+                          padding: '7px 10px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        DELETE
                       </button>
                     )}
                   </div>
@@ -346,33 +550,6 @@ export default function Vault({ user }) {
                     Close
                   </button>
                   <h3 style={{ margin: '0 0 12px', color: 'var(--accent)' }}>Recreated Scene</h3>
-                  <img
-                    src={buildImageSrc(getArchiveSceneImage(selectedSession))}
-                    alt="Recreated room scene"
-                    loading="lazy"
-                    onError={(event) => {
-                      if (!event.currentTarget.dataset.retried) {
-                        event.currentTarget.dataset.retried = 'true';
-                        const retryUrl = getArchiveSceneImage(selectedSession);
-                        event.currentTarget.src = `${buildImageSrc(retryUrl)}${retryUrl.includes('?') ? '&' : '?'}retry=${Date.now()}`;
-                        return;
-                      }
-                      console.warn('Archive scene image failed to load', {
-                        imageUrl: selectedSession.imageUrl?.slice?.(0, 120),
-                      });
-                      event.currentTarget.src =
-                        'https://placehold.co/900x900/111827/e5e7eb?text=Render+still+generating';
-                    }}
-                    style={{
-                      width: '100%',
-                      aspectRatio: '1 / 1',
-                      objectFit: 'cover',
-                      borderRadius: '12px',
-                      display: 'block',
-                      marginBottom: '14px',
-                      background: 'var(--surface)',
-                    }}
-                  />
                   {(() => {
                     const payload = parseAnalysisPayload(selectedSession);
                     const added = Array.isArray(payload.added_elements)
@@ -382,6 +559,34 @@ export default function Vault({ user }) {
 
                     return (
                       <>
+                        <img
+                          key={selectedSession.id}
+                          src={buildImageSrc(getArchiveSceneImage(selectedSession))}
+                          alt="AI recreated room scene with suggestions"
+                          onError={(event) => {
+                            const fallbacks = getArchiveSceneFallbacks(selectedSession);
+                            const nextIndex = Number(event.currentTarget.dataset.fallbackIndex || 0);
+                            const nextUrl = fallbacks[nextIndex];
+
+                            if (nextUrl) {
+                              event.currentTarget.dataset.fallbackIndex = String(nextIndex + 1);
+                              event.currentTarget.src = buildImageSrc(nextUrl);
+                              return;
+                            }
+                            console.warn('Archive scene image failed to load', {
+                              imageUrl: selectedSession.imageUrl?.slice?.(0, 120),
+                            });
+                          }}
+                          style={{
+                            width: '100%',
+                            aspectRatio: '1 / 1',
+                            objectFit: 'cover',
+                            borderRadius: '12px',
+                            display: 'block',
+                            marginBottom: '14px',
+                            background: 'var(--surface)',
+                          }}
+                        />
                         {payload.analysis_summary && (
                           <>
                             <h4 style={{ margin: '12px 0 6px', fontSize: '0.78rem' }}>What was analyzed</h4>
@@ -392,7 +597,7 @@ export default function Vault({ user }) {
                         )}
                         {isOriginalScanImage(selectedSession, selectedSession.imageUrl) && (
                           <p style={{ margin: '10px 0 0', fontSize: '0.72rem', lineHeight: 1.45, color: 'var(--text-muted)' }}>
-                            DreamDwell is showing a generated recreated render above. The original scan is kept only as fallback data and is not used as the recreated scene.
+                            DreamDwell is showing an AI recreated render based on the saved analysis prompt. It keeps only a visual glimpse of the original room rather than an exact replica.
                           </p>
                         )}
                         {(payload.render_provider || payload.render_warning) && (

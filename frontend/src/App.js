@@ -59,8 +59,16 @@ function AppContent() {
   }
 
   // 2. MAIN APP RENDER
+  const viewportStyle = {
+    height: '100vh',
+    width: '100vw',
+    overflowX: 'hidden',
+    overflowY: user ? 'hidden' : 'auto',
+    position: 'fixed',
+  };
+
   return (
-    <div className="system-viewport" style={{ height: '100vh', width: '100vw', overflow: 'hidden', position: 'fixed' }}>
+    <div className="system-viewport" style={viewportStyle}>
       {!user ? (
         /* FLOW 1: Not Logged In */
         <SystemPortal />

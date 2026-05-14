@@ -1,9 +1,38 @@
-import React, { createContext, useState, useContext } from 'react';
+import React, { createContext, useCallback, useEffect, useState, useContext } from 'react';
 
 const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkModeState] = useState(() => {
+    try {
+      return localStorage.getItem('dreamdwellTheme') === 'dark';
+    } catch (_error) {
+      return false;
+    }
+  });
+
+  const setIsDarkMode = useCallback((value) => {
+    setIsDarkModeState((current) => {
+      const next = typeof value === 'function' ? value(current) : value;
+      try {
+        localStorage.setItem('dreamdwellTheme', next ? 'dark' : 'light');
+      } catch (_error) {
+        // Ignore storage failures; the UI should still update for this session.
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    try {
+      const settings = JSON.parse(localStorage.getItem('dreamdwellInterfaceSettings') || '{}');
+      document.documentElement.dataset.density = `${settings.density || 'Comfortable'}`.toLowerCase();
+      document.documentElement.dataset.textSize = `${settings.textSize || 'Medium'}`.toLowerCase();
+    } catch (_error) {
+      document.documentElement.dataset.density = 'comfortable';
+      document.documentElement.dataset.textSize = 'medium';
+    }
+  }, []);
 
   const themes = {
     dark: {

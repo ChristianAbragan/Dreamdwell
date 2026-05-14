@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { CircleMarker, MapContainer, Polyline, Popup, TileLayer } from 'react-leaflet';
+import { Circle, CircleMarker, MapContainer, Polyline, Popup, TileLayer } from 'react-leaflet';
 import { useAuth } from '../../context/AuthContext';
 import DreamAIChat from '../../components/DreamAIChat';
 import StatusPill from '../../components/StatusPill';
@@ -9,6 +9,7 @@ import { persistLastScan } from '../../utils/dreamdwellContext';
 import 'leaflet/dist/leaflet.css';
 
 const STEP = { IDLE: 'idle', SOURCE: 'source', CAPTURE: 'capture', ANALYZING: 'analyzing', DONE: 'done' };
+const GOOGLE_MAPS_EMBED_KEY = process.env.REACT_APP_GOOGLE_MAPS_API_KEY || '';
 
 const getSuggestionBounds = (suggestion, index = 0) => {
   if (Array.isArray(suggestion?.points) && suggestion.points.length === 4) {
@@ -35,8 +36,8 @@ const getSuggestionBounds = (suggestion, index = 0) => {
 };
 
 const buildStoreSearchUrl = (suggestion, coords) => {
-  const location = coords ? ` near ${coords.lat},${coords.lng}` : ' near me';
-  return suggestion?.shop_url || `https://www.google.com/search?q=${encodeURIComponent(`${suggestion?.item || 'furniture'} store${location}`)}`;
+  const location = coords ? ` ${coords.lat},${coords.lng}` : '';
+  return `https://www.lazada.com.ph/catalog/?q=${encodeURIComponent(`${suggestion?.item || 'furniture'} home decor${location}`)}`;
 };
 
 const buildRouteUrl = (suggestion, coords) => {
@@ -44,7 +45,38 @@ const buildRouteUrl = (suggestion, coords) => {
   return `https://www.google.com/maps/dir/?api=1${origin}&destination=${encodeURIComponent(`${suggestion?.item || 'furniture'} store near me`)}`;
 };
 
-const buildRoutePreview = (place, coords, fallbackSuggestion) => {
+const imageFallbackUrl = (label = 'Product') =>
+  `https://placehold.co/640x480/e8edf5/2f3747?text=${encodeURIComponent(label)}`;
+
+const storeLogoUrl = (store = '') => {
+  const key = store.toLowerCase();
+  const logos = [
+    { pattern: /ikea/, text: 'IKEA', bg: '#0058a3', fg: '#ffda1a', sub: 'Philippines' },
+    { pattern: /mandaue/, text: 'Mandaue Foam', bg: '#163b6d', fg: '#ffffff', sub: 'Furniture' },
+    { pattern: /allhome/, text: 'AllHome', bg: '#ffffff', fg: '#2f3747', sub: 'Home Improvement' },
+    { pattern: /lazada/, text: 'Lazada', bg: '#f36f21', fg: '#ffffff', sub: 'Philippines' },
+    { pattern: /shopee/, text: 'Shopee', bg: '#ee4d2d', fg: '#ffffff', sub: 'Philippines' },
+  ];
+  const logo = logos.find((item) => item.pattern.test(key)) || {
+    text: store || 'Store',
+    bg: '#e8edf5',
+    fg: '#2f3747',
+    sub: 'Store',
+  };
+  const safeText = logo.text.replace(/&/g, '&amp;');
+  const safeSub = logo.sub.replace(/&/g, '&amp;');
+  const fontSize = safeText.length > 12 ? 34 : 46;
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420">
+      <rect width="640" height="420" rx="34" fill="${logo.bg}"/>
+      <rect x="34" y="34" width="572" height="352" rx="28" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.22)" stroke-width="2"/>
+      <text x="320" y="200" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${fontSize}" font-weight="800" fill="${logo.fg}">${safeText}</text>
+      <text x="320" y="248" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="600" fill="${logo.fg}" opacity="0.82">${safeSub}</text>
+    </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+};
+
+const buildRoutePreview = (place, coords, fallbackSuggestion, status = '', places = []) => {
   const lat = Number(place?.lat);
   const lng = Number(place?.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -53,18 +85,20 @@ const buildRoutePreview = (place, coords, fallbackSuggestion) => {
         title: `${fallbackSuggestion?.item || 'Store'} near you`,
         origin: coords,
         destination: null,
-        embedUrl: `https://www.openstreetmap.org/export/embed.html?marker=${coords.lat},${coords.lng}&bbox=${coords.lng - 0.03},${coords.lat - 0.03},${coords.lng + 0.03},${coords.lat + 0.03}`,
         routeUrl: buildRouteUrl(fallbackSuggestion, coords),
         needsStore: true,
+        status,
+        places,
       };
     }
     return {
       title: fallbackSuggestion?.item || 'Store route',
       origin: coords || null,
       destination: null,
-      embedUrl: '',
       routeUrl: place?.routeUrl || buildRouteUrl(fallbackSuggestion, coords),
       needsStore: true,
+      status,
+      places,
     };
   }
 
@@ -72,12 +106,12 @@ const buildRoutePreview = (place, coords, fallbackSuggestion) => {
     title: place?.name || fallbackSuggestion?.item || 'Store route',
     origin: coords || null,
     destination: { lat, lng },
-    embedUrl: `https://www.openstreetmap.org/export/embed.html?marker=${lat},${lng}&bbox=${lng - 0.02},${lat - 0.02},${lng + 0.02},${lat + 0.02}`,
+    places,
     routeUrl:
       place?.routeUrl ||
       (coords
-        ? `https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=${coords.lat}%2C${coords.lng}%3B${lat}%2C${lng}`
-        : `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=18/${lat}/${lng}`),
+        ? `https://www.google.com/maps/dir/?api=1&origin=${coords.lat},${coords.lng}&destination=${lat},${lng}`
+        : `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`),
   };
 };
 
@@ -112,6 +146,14 @@ function RouteMap({ routePreview }) {
   const [routeInfo, setRouteInfo] = useState('');
   const origin = routePreview?.origin;
   const destination = routePreview?.destination;
+  const storePins = routePreview?.places?.length
+    ? routePreview.places
+    : destination
+      ? [{ name: routePreview.title, lat: destination.lat, lng: destination.lng, routeUrl: routePreview.routeUrl }]
+      : [];
+  const googleEmbedUrl = GOOGLE_MAPS_EMBED_KEY && origin && destination
+    ? `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&mode=driving`
+    : '';
 
   useEffect(() => {
     let ignore = false;
@@ -143,14 +185,6 @@ function RouteMap({ routePreview }) {
   }, [origin, destination]);
 
   const center = destination || origin;
-  if (routePreview?.needsStore) {
-    return (
-      <div style={{ padding: 24, border: '1px solid var(--glass-border)', borderRadius: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-        No store location was found for this suggestion yet. Open store search first, then choose a listed store to preview the route.
-      </div>
-    );
-  }
-
   if (!center) {
     return (
       <div style={{ padding: 24, border: '1px solid var(--glass-border)', borderRadius: 12, color: 'var(--text-muted)' }}>
@@ -161,40 +195,87 @@ function RouteMap({ routePreview }) {
 
   return (
     <div>
+      {routePreview.status && (
+        <p style={{ margin: '0 0 8px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{routePreview.status}</p>
+      )}
+      {origin?.accuracy && (
+        <p style={{ margin: '0 0 8px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+          Your browser reports location accuracy around {Math.round(origin.accuracy)} meters.
+        </p>
+      )}
       {routeInfo && <p style={{ margin: '0 0 8px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{routeInfo}</p>}
       <div style={{ height: 380, border: '1px solid var(--glass-border)', borderRadius: 12, overflow: 'hidden' }}>
-        <MapContainer center={[center.lat, center.lng]} zoom={14} style={{ height: '100%', width: '100%' }} scrollWheelZoom={false}>
-          <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          {origin && (
-            <CircleMarker center={[origin.lat, origin.lng]} radius={8} pathOptions={{ color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.9 }}>
-              <Popup>Your location</Popup>
-            </CircleMarker>
+        {googleEmbedUrl && !routePreview.needsStore ? (
+          <iframe
+            title={`Google route to ${routePreview.title}`}
+            src={googleEmbedUrl}
+            style={{ width: '100%', height: '100%', border: 0, display: 'block' }}
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+            allowFullScreen
+          />
+        ) : (
+          <MapContainer center={[center.lat, center.lng]} zoom={14} style={{ height: '100%', width: '100%' }} scrollWheelZoom={false}>
+            <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            {origin && (
+              <>
+                {origin.accuracy && (
+                  <Circle
+                    center={[origin.lat, origin.lng]}
+                    radius={origin.accuracy}
+                    pathOptions={{ color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.08, weight: 1 }}
+                  />
+                )}
+                <CircleMarker center={[origin.lat, origin.lng]} radius={8} pathOptions={{ color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.9 }}>
+                  <Popup>Your location{origin.accuracy ? ` (${Math.round(origin.accuracy)}m accuracy)` : ''}</Popup>
+                </CircleMarker>
+              </>
+            )}
+            {storePins.map((place) => (
+              <CircleMarker
+                key={place.placeId || place.name || `${place.lat}-${place.lng}`}
+                center={[Number(place.lat), Number(place.lng)]}
+                radius={8}
+                pathOptions={{ color: '#7c3aed', fillColor: '#7c3aed', fillOpacity: 0.9 }}
+              >
+                <Popup>
+                  <strong>{place.name || routePreview.title}</strong>
+                  {place.distanceKm !== null && place.distanceKm !== undefined ? <><br />{place.distanceKm} km away</> : null}
+                </Popup>
+              </CircleMarker>
+            ))}
+            {routeLine.length > 0 && <Polyline positions={routeLine} pathOptions={{ color: '#7c3aed', weight: 5, opacity: 0.85 }} />}
+          </MapContainer>
           )}
-          {destination && (
-            <CircleMarker center={[destination.lat, destination.lng]} radius={8} pathOptions={{ color: '#7c3aed', fillColor: '#7c3aed', fillOpacity: 0.9 }}>
-              <Popup>{routePreview.title}</Popup>
-            </CircleMarker>
-          )}
-          {routeLine.length > 0 && <Polyline positions={routeLine} pathOptions={{ color: '#7c3aed', weight: 5, opacity: 0.85 }} />}
-        </MapContainer>
       </div>
     </div>
   );
 }
 
 const buildRecreatedSceneUrl = (result) => {
-  const suggestions = (result?.suggestions || [])
-    .slice(0, 8)
-    .map((item) => `${item.item} placed at ${item.placementLabel || item.targetSurface || 'the best visible area'}`)
-    .join(', ');
-  const prompt = [
-    'realistic interior design render of the analyzed room',
-    result?.analysis_summary || result?.explanation || '',
-    suggestions ? `add these suggested items: ${suggestions}` : '',
-    'preserve room proportions, camera angle, windows, walls, floor, and lighting',
-  ].filter(Boolean).join('. ');
+  if (result?.source_recreation_prompt) {
+    return `https://image.pollinations.ai/prompt/${encodeURIComponent(String(result.source_recreation_prompt).replace(/\s+/g, ' ').trim().slice(0, 1200))}?width=1024&height=1024&nologo=true&seed=42`;
+  }
 
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=768&nologo=true&enhance=true`;
+  const baseScene = result?.analysis_summary || result?.explanation || 'an empty room';
+  const suggestions = Array.isArray(result?.suggestions) ? result.suggestions : [];
+
+  // Build concise suggestion list
+  const suggestionItems = suggestions
+    .slice(0, 6)
+    .map((item) => {
+      const placement = item.placementLabel || item.targetSurface || 'the room';
+      return `${item.item} at ${placement}`;
+    })
+    .join(', ');
+
+  // Build a concise, direct prompt optimized for Pollinations
+  const promptText = suggestionItems
+    ? `${baseScene}, with ${suggestionItems}. Interior design render, realistic, 8k, professional photography`
+    : `${baseScene}. Interior design render, realistic, 8k, professional photography`;
+
+  console.log('Generated Pollinations prompt:', promptText);
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}`;
 };
 
 export default function VoiceCore({ user }) {
@@ -316,7 +397,7 @@ export default function VoiceCore({ user }) {
       }
       const result = await response.json();
       result._imageUrl = imageDataUrl;
-      result.recreatedImageUrl = result.local_recreated_scene || buildRecreatedSceneUrl(result);
+      result.recreatedImageUrl = result.generated_scene_url || result.local_recreated_scene || buildRecreatedSceneUrl(result);
       setScanResult(result);
       persistLastScan(result, authUser.uid);
 
@@ -339,6 +420,7 @@ export default function VoiceCore({ user }) {
               geometry: result.geometry,
               chat: chatTranscript,
               render_provider: 'pollinations-text-render',
+              source_recreation_prompt: result.source_recreation_prompt,
               generated_scene_url: result.recreatedImageUrl,
               local_recreated_scene: result.local_recreated_scene,
               fallback_image_url: imageDataUrl,
@@ -471,12 +553,17 @@ function IdleView({ onGetStarted, user }) {
 
   return (
     <div style={{
-      flex: 1, display: 'flex', overflow: 'hidden',
+      flex: 1,
+      width: '100%',
+      minHeight: 0,
+      display: 'grid',
+      gridTemplateColumns: 'minmax(420px, 1.08fr) minmax(360px, 0.72fr)',
+      overflow: 'hidden',
       background: 'var(--bg-1)',
+      borderRadius: 10,
     }}>
       {/* ── LEFT: Full-bleed slideshow with centered text overlay ── */}
       <div style={{
-        flex: '0 0 62%',
         position: 'relative',
         overflow: 'hidden',
       }}>
@@ -538,10 +625,10 @@ function IdleView({ onGetStarted, user }) {
           position: 'absolute', inset: 0,
           display: 'flex', flexDirection: 'column',
           alignItems: 'flex-start', justifyContent: 'center',
-          padding: '0 48px',
+          padding: 'clamp(28px, 5vw, 64px)',
           zIndex: 3,
         }}>
-          <div style={{ maxWidth: 420 }}>
+          <div style={{ maxWidth: 460 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
               <div style={{
                 width: 8, height: 8, borderRadius: '50%',
@@ -551,26 +638,26 @@ function IdleView({ onGetStarted, user }) {
               <span style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '1.2px', color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase' }}>DreamDwell</span>
             </div>
             <h1 style={{
-              margin: '0 0 10px', fontSize: '2.4rem', fontWeight: 700,
-              color: 'white', letterSpacing: '-0.8px', lineHeight: 1.1,
+              margin: '0 0 12px', fontSize: 'clamp(2.4rem, 4vw, 4.1rem)', fontWeight: 750,
+              color: 'white', letterSpacing: 0, lineHeight: 1.02,
             }}>
               Your Room,<br />Analyzed.
             </h1>
             <p style={{
-              margin: '0 0 22px', fontSize: '0.88rem', color: 'rgba(255,255,255,0.72)',
-              lineHeight: 1.6, maxWidth: 340,
+              margin: '0 0 26px', fontSize: '0.98rem', color: 'rgba(255,255,255,0.78)',
+              lineHeight: 1.65, maxWidth: 390,
             }}>
               Upload a photo. AI detects furniture, suggests improvements, and links local shop prices.
             </p>
             <button
               className="btn-primary"
               onClick={onGetStarted}
-              style={{ padding: '13px 32px', fontSize: '0.9rem', borderRadius: 11 }}
+              style={{ padding: '14px 34px', fontSize: '0.92rem', borderRadius: 10 }}
             >
               Analyze a Room
             </button>
             {/* How it works */}
-            <div style={{ display: 'flex', marginTop: 28 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(88px, 1fr))', gap: 0, marginTop: 34, maxWidth: 410 }}>
               {[['01', 'Upload', 'Pick or snap'], ['02', 'Analyze', 'AI reads room'], ['03', 'Shop', 'Local links']].map(([n, l, s], i) => (
                 <div key={n} style={{ flex: 1, borderRight: i < 2 ? '1px solid rgba(255,255,255,0.18)' : 'none', paddingRight: 14 }}>
                   <div style={{ fontSize: '0.58rem', fontWeight: 700, color: 'rgba(255,255,255,0.5)', marginBottom: 1 }}>{n}</div>
@@ -585,7 +672,6 @@ function IdleView({ onGetStarted, user }) {
 
       {/* ── RIGHT: Archi Chat ── */}
       <div style={{
-        flex: 1,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -593,7 +679,7 @@ function IdleView({ onGetStarted, user }) {
         background: 'var(--bg-1)',
       }}>
         {/* Chat header */}
-        <div style={{ padding: '20px 24px 0', flexShrink: 0 }}>
+        <div style={{ padding: '26px 28px 0', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0 }} />
             <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.7px' }}>ASK ARCHI</span>
@@ -608,7 +694,7 @@ function IdleView({ onGetStarted, user }) {
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          padding: '14px 20px 20px',
+          padding: '16px 24px 24px',
           minHeight: 0,
           overflow: 'hidden',
         }}>
@@ -659,30 +745,31 @@ function SourceCaptureView({
           minHeight: 0,
           display: 'grid',
           gridTemplateColumns: hasSelection
-            ? 'minmax(230px, 0.42fr) minmax(320px, 1fr)'
+            ? 'minmax(170px, 220px) minmax(360px, 1fr)'
             : 'minmax(280px, 620px) minmax(0, 0fr)',
-          gap: hasSelection ? 18 : 0,
+          gap: hasSelection ? 20 : 0,
           alignItems: 'stretch',
           justifyContent: 'center',
           transition: 'grid-template-columns 0.45s ease, gap 0.45s ease',
         }}
       >
-        <section style={{ minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 18 }}>
+        <section style={{ minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: hasSelection ? 'flex-start' : 'center', gap: hasSelection ? 12 : 18, paddingTop: hasSelection ? 34 : 0 }}>
           <div>
-            <h2 style={{ margin: '0 0 8px', fontSize: hasSelection ? '1.1rem' : '1.45rem' }}>
+            <h2 style={{ margin: '0 0 8px', fontSize: hasSelection ? '1rem' : '1.45rem' }}>
               How do you want to scan?
             </h2>
-            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1.6 }}>
-              Pick webcam or upload. Your selected room image will slide in beside these options.
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: hasSelection ? '0.72rem' : '0.85rem', lineHeight: 1.55 }}>
+              {hasSelection ? 'Switch source anytime.' : 'Pick webcam or upload. Your selected room image will slide in beside these options.'}
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: hasSelection ? '1fr' : 'repeat(2, minmax(160px, 1fr))', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: hasSelection ? '1fr' : 'repeat(2, minmax(160px, 1fr))', gap: hasSelection ? 10 : 14 }}>
             <SourceCard
               icon={<WebcamIcon />}
               label="Use Webcam"
               description="Capture live view"
               active={inputMode === 'webcam'}
+              compact={hasSelection}
               onClick={() => onSelect('webcam')}
             />
             <SourceCard
@@ -690,6 +777,7 @@ function SourceCaptureView({
               label="Upload Photo"
               description="Choose from gallery"
               active={inputMode === 'upload'}
+              compact={hasSelection}
               onClick={() => onSelect('upload')}
             />
           </div>
@@ -698,6 +786,8 @@ function SourceCaptureView({
         <section
           style={{
             minWidth: 0,
+            display: 'flex',
+            minHeight: 0,
             overflow: 'hidden',
             opacity: hasSelection ? 1 : 0,
             transform: hasSelection ? 'translateX(0)' : 'translateX(32px)',
@@ -747,17 +837,26 @@ function SourceView({ onSelect, onBack }) {
   );
 }
 
-function SourceCard({ icon, label, description, active = false, onClick }) {
+function SourceCard({ icon, label, description, active = false, compact = false, onClick }) {
   return (
     <button
       onClick={onClick}
       style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
-        padding: '28px 40px', border: '1.5px solid var(--glass-border)',
-        borderRadius: 16,
+        display: 'flex',
+        flexDirection: compact ? 'row' : 'column',
+        alignItems: 'center',
+        justifyContent: compact ? 'flex-start' : 'center',
+        textAlign: compact ? 'left' : 'center',
+        gap: compact ? 10 : 10,
+        padding: compact ? '12px 14px' : '28px 40px',
+        border: '1.5px solid var(--glass-border)',
+        borderRadius: compact ? 12 : 16,
         background: active ? 'rgba(139,92,246,0.12)' : 'var(--surface)',
         color: active ? 'var(--accent)' : 'var(--text-muted)',
-        cursor: 'pointer', minWidth: 160, transition: 'all 0.2s',
+        cursor: 'pointer',
+        minWidth: compact ? 0 : 160,
+        minHeight: compact ? 68 : 178,
+        transition: 'all 0.2s',
         fontFamily: "'Space Grotesk', sans-serif",
         boxShadow: active ? '0 0 0 1px var(--accent) inset' : 'none',
       }}
@@ -772,9 +871,11 @@ function SourceCard({ icon, label, description, active = false, onClick }) {
         e.currentTarget.style.background = active ? 'rgba(139,92,246,0.12)' : 'var(--surface)';
       }}
     >
-      <span style={{ color: 'inherit' }}>{icon}</span>
-      <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{label}</span>
-      <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{description}</span>
+      <span style={{ color: 'inherit', display: 'flex', flexShrink: 0, transform: compact ? 'scale(0.78)' : 'none' }}>{icon}</span>
+      <span style={{ display: 'flex', flexDirection: 'column', gap: compact ? 2 : 8, minWidth: 0 }}>
+        <span style={{ fontSize: compact ? '0.78rem' : '0.9rem', fontWeight: 600 }}>{label}</span>
+        <span style={{ fontSize: compact ? '0.66rem' : '0.75rem', opacity: 0.7, lineHeight: 1.25 }}>{description}</span>
+      </span>
     </button>
   );
 }
@@ -812,7 +913,7 @@ function CaptureView({ imageDataUrl, inputMode, onAnalyze, onRetry, error, video
   }, [imageDataUrl]);
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 14, padding: '8px 0' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Step 2 of 2</span>
       </div>
@@ -898,11 +999,55 @@ function DoneView({ scanResult, imageDataUrl, onNewScan, user, authUser, onChatM
   const [selectedShop, setSelectedShop] = useState(null);
   const [coords, setCoords] = useState(null);
   const [nearbyPlaces, setNearbyPlaces] = useState([]);
-  const [placesStatus, setPlacesStatus] = useState('');
+  const [onlineProducts, setOnlineProducts] = useState([]);
+  const [productsStatus, setProductsStatus] = useState('');
   const [routePreview, setRoutePreview] = useState(null);
   const [storePreview, setStorePreview] = useState(null);
   const [imageAspectRatio, setImageAspectRatio] = useState(Number(scanResult?.geometry?.aspectRatio) || 16 / 9);
   const visibleSuggestions = scanResult?.suggestions || [];
+
+  const fetchNearbyPlacesFor = useCallback(async (suggestion, signal) => {
+    if (!coords) return [];
+    const params = new URLSearchParams({
+      lat: String(coords.lat),
+      lng: String(coords.lng),
+      query: suggestion?.item || 'furniture',
+    });
+    const response = await fetch(`${API_BASE_URL}/api/places/nearby?${params}`, { signal });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.userMessage || data.error || 'Nearby store lookup failed.');
+    }
+    return Array.isArray(data.places) ? data.places : [];
+  }, [coords]);
+
+  const openStoreSearch = useCallback((suggestion) => {
+    setSelectedShop(suggestion);
+    setStorePreview({
+      title: `${suggestion.item} store search`,
+      url: buildStoreSearchUrl(suggestion, coords),
+    });
+  }, [coords]);
+
+  const openRoute = useCallback(async (suggestion) => {
+    if (!coords) {
+      setRoutePreview(buildRoutePreview(null, coords, suggestion, 'Route preview needs location permission.'));
+      return;
+    }
+
+    setRoutePreview(buildRoutePreview(null, coords, suggestion, 'Checking Google Maps for nearby stores...', []));
+
+    try {
+      const places = await fetchNearbyPlacesFor(suggestion);
+      if (places[0]) {
+        setRoutePreview(buildRoutePreview(places[0], coords, suggestion, '', places));
+        return;
+      }
+      setRoutePreview(buildRoutePreview(null, coords, suggestion, 'No Google Maps store results were found nearby. The map is centered on your reported live location.', []));
+    } catch (error) {
+      setRoutePreview(buildRoutePreview(null, coords, suggestion, error.message || 'Google Maps lookup is unavailable right now.', []));
+    }
+  }, [coords, fetchNearbyPlacesFor]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -910,52 +1055,80 @@ function DoneView({ scanResult, imageDataUrl, onNewScan, user, authUser, onChatM
       (position) => setCoords({
         lat: Number(position.coords.latitude.toFixed(6)),
         lng: Number(position.coords.longitude.toFixed(6)),
+        accuracy: Math.round(position.coords.accuracy || 0),
       }),
       () => setCoords(null),
-      { enableHighAccuracy: false, timeout: 6000 }
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 }
     );
   }, []);
 
   useEffect(() => {
     if (!selectedShop || !coords) {
-      setNearbyPlaces([]);
-      setPlacesStatus('');
-      return;
+      if (!selectedShop) {
+        setNearbyPlaces([]);
+        setOnlineProducts([]);
+        setProductsStatus('');
+        return;
+      }
     }
 
     const controller = new AbortController();
 
-    const loadPlaces = async () => {
-      setPlacesStatus('Finding nearby stores...');
-      setNearbyPlaces([]);
+    const loadShoppingData = async () => {
+      if (coords) {
+        setNearbyPlaces([]);
+      }
+      setProductsStatus('Loading online store products...');
+      setOnlineProducts([]);
+
+      if (coords) {
+        try {
+          const params = new URLSearchParams({
+            lat: String(coords.lat),
+            lng: String(coords.lng),
+            query: selectedShop.item || 'furniture',
+          });
+          const response = await fetch(`${API_BASE_URL}/api/places/nearby?${params}`, {
+            signal: controller.signal,
+          });
+          const contentType = response.headers.get('content-type') || '';
+          if (!contentType.includes('application/json')) {
+            throw new Error('Nearby store API is not reachable. Restart the backend and check REACT_APP_API_BASE_URL.');
+          }
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.userMessage || data.error || 'Nearby store lookup failed.');
+          }
+          setNearbyPlaces(Array.isArray(data.places) ? data.places : []);
+        } catch (error) {
+          if (error.name !== 'AbortError') {
+            setNearbyPlaces([]);
+          }
+        }
+      }
 
       try {
-        const params = new URLSearchParams({
-          lat: String(coords.lat),
-          lng: String(coords.lng),
+        const productParams = new URLSearchParams({
           query: selectedShop.item || 'furniture',
+          price: String(selectedShop.price_value || ''),
         });
-        const response = await fetch(`${API_BASE_URL}/api/places/nearby?${params}`, {
+        const productResponse = await fetch(`${API_BASE_URL}/api/places/online-stores?${productParams}`, {
           signal: controller.signal,
         });
-        const contentType = response.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          throw new Error('Nearby store API is not reachable. Restart the backend and check REACT_APP_API_BASE_URL.');
+        const productData = await productResponse.json();
+        if (!productResponse.ok) {
+          throw new Error(productData.error || 'Online store lookup failed.');
         }
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.userMessage || data.error || 'Nearby store lookup failed.');
-        }
-        setNearbyPlaces(Array.isArray(data.places) ? data.places : []);
-        setPlacesStatus(data.places?.length ? data.notice || '' : data.notice || 'No nearby stores found. Try the search link.');
+        setOnlineProducts(Array.isArray(productData.products) ? productData.products : []);
+        setProductsStatus('');
       } catch (error) {
         if (error.name !== 'AbortError') {
-          setPlacesStatus(error.message || 'Nearby store lookup is unavailable. Use the search link below.');
+          setProductsStatus(error.message || 'Online store products are unavailable.');
         }
       }
     };
 
-    loadPlaces();
+    loadShoppingData();
     return () => controller.abort();
   }, [coords, selectedShop]);
 
@@ -1055,82 +1228,12 @@ function DoneView({ scanResult, imageDataUrl, onNewScan, user, authUser, onChatM
               {showAll ? 'Show less' : `Show all`}
             </button>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: selectedShop ? 'minmax(0, 1fr) 320px' : '1fr', gap: 12, minHeight: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, minHeight: 0 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', maxHeight: showAll ? 240 : 100 }}>
               {(showAll ? scanResult.suggestions : scanResult.suggestions.slice(0, 3)).map((s, i) => (
-                <SuggestionRow key={`${s.item}-${i}`} s={s} index={i} onShop={() => setSelectedShop(s)} />
+                <SuggestionRow key={`${s.item}-${i}`} s={s} index={i} onShop={() => openStoreSearch(s)} onRoute={() => openRoute(s)} />
               ))}
             </div>
-            {selectedShop && (
-              <aside style={{ border: '1px solid var(--glass-border)', borderRadius: 10, padding: 12, background: 'rgba(255,255,255,0.04)' }}>
-                <button type="button" onClick={() => setSelectedShop(null)} style={{ float: 'right', border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}>x</button>
-                <h4 style={{ margin: '0 0 8px', fontSize: '0.84rem' }}>{selectedShop.item}</h4>
-                <p style={{ margin: '0 0 10px', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.45 }}>
-                  {coords ? 'Nearby stores ranked by distance.' : 'Allow location to show real nearby stores.'}
-                </p>
-                {placesStatus && (
-                  <p style={{ margin: '0 0 10px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{placesStatus}</p>
-                )}
-                {nearbyPlaces.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 110, overflowY: 'auto', marginBottom: 10 }}>
-                    {nearbyPlaces.map((place) => (
-                      <div key={place.placeId || place.name} style={{ borderBottom: '1px solid var(--glass-border)', paddingBottom: 7 }}>
-                        <strong style={{ display: 'block', fontSize: '0.74rem' }}>{place.name}</strong>
-                        <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-                          {place.distanceKm !== null ? `${place.distanceKm} km | ` : ''}
-                          {place.rating ? `${place.rating} stars | ` : ''}
-                          {place.openNow === true ? 'Open now' : place.openNow === false ? 'Closed now' : 'Hours unknown'}
-                        </span>
-                        <div style={{ display: 'flex', gap: 8, marginTop: 5 }}>
-                          <a href={place.mapsUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: '0.68rem' }}>View</a>
-                          <button
-                            type="button"
-                            onClick={() => setRoutePreview(buildRoutePreview(place, coords, selectedShop))}
-                            style={{ color: 'var(--accent)', fontSize: '0.68rem', border: 'none', background: 'transparent', padding: 0, cursor: 'pointer' }}
-                          >
-                            Route
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    onClick={() => setStorePreview({
-                      title: `${selectedShop.item} store search`,
-                      url: buildStoreSearchUrl(selectedShop, coords),
-                      places: nearbyPlaces,
-                      status: placesStatus,
-                    })}
-                    className="ghost-btn"
-                    style={{ fontSize: '0.72rem' }}
-                  >
-                    Open store search
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (nearbyPlaces[0]) {
-                        setRoutePreview(buildRoutePreview(nearbyPlaces[0], coords, selectedShop));
-                      } else {
-                        setStorePreview({
-                          title: `${selectedShop.item} store search`,
-                          url: buildStoreSearchUrl(selectedShop, coords),
-                          places: nearbyPlaces,
-                          status: placesStatus || 'Choose a store first so DreamDwell can draw a route.',
-                        });
-                      }
-                    }}
-                    className="ghost-btn"
-                    style={{ fontSize: '0.72rem' }}
-                  >
-                    Route
-                  </button>
-                </div>
-              </aside>
-            )}
           </div>
         </div>
       )}
@@ -1192,42 +1295,98 @@ function DoneView({ scanResult, imageDataUrl, onNewScan, user, authUser, onChatM
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: '1rem' }}>{storePreview.title}</h3>
+                <h3 style={{ margin: 0, fontSize: '1rem' }}>{selectedShop?.item || storePreview.title} store search</h3>
                 <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.75rem' }}>Search preview</p>
               </div>
               <button type="button" className="ghost-btn" onClick={() => setStorePreview(null)}>Close</button>
             </div>
-            <div style={{ border: '1px solid var(--glass-border)', borderRadius: 12, padding: 14, minHeight: 260, background: 'rgba(255,255,255,0.04)' }}>
-              {storePreview.places?.length ? (
-                <div style={{ display: 'grid', gap: 10 }}>
-                  {storePreview.places.map((place) => (
-                    <article key={place.placeId || place.name} style={{ padding: 12, border: '1px solid var(--glass-border)', borderRadius: 10, background: 'var(--surface)' }}>
-                      <strong style={{ display: 'block', marginBottom: 4 }}>{place.name}</strong>
-                      <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.76rem' }}>
-                        {place.distanceKm !== null ? `${place.distanceKm} km | ` : ''}
-                        {place.address || 'Address unavailable'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setStorePreview(null);
-                          setRoutePreview(buildRoutePreview(place, coords, selectedShop));
-                        }}
-                        className="ghost-btn"
-                        style={{ marginTop: 8, fontSize: '0.72rem' }}
+            <div style={{ border: '1px solid var(--glass-border)', borderRadius: 12, padding: 14, minHeight: 320, background: 'rgba(255,255,255,0.04)', display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr)', gap: 14, overflow: 'hidden' }}>
+              <div style={{ borderRight: '1px solid var(--glass-border)', paddingRight: 12, overflowY: 'auto' }}>
+                <h4 style={{ margin: '0 0 10px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>Suggested items</h4>
+                {(scanResult?.suggestions || []).map((item, index) => (
+                  <button
+                    key={`${item.item}-${index}`}
+                    type="button"
+                    onClick={() => setSelectedShop(item)}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      border: selectedShop?.item === item.item ? '1px solid var(--accent)' : '1px solid var(--glass-border)',
+                      background: selectedShop?.item === item.item ? 'rgba(139,92,246,0.12)' : 'rgba(255,255,255,0.03)',
+                      color: 'inherit',
+                      borderRadius: 8,
+                      padding: '8px 9px',
+                      marginBottom: 8,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <strong style={{ display: 'block', fontSize: '0.75rem' }}>{item.item}</strong>
+                    <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.68rem' }}>{item.price_php || 'Price varies'}</span>
+                  </button>
+                ))}
+              </div>
+              <div style={{ overflowY: 'auto', minWidth: 0 }}>
+                {productsStatus && (
+                  <p style={{ margin: '0 0 10px', color: 'var(--text-muted)', fontSize: '0.74rem' }}>{productsStatus}</p>
+                )}
+                {onlineProducts.length ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
+                    {onlineProducts.map((product) => (
+                      <a
+                        key={product.id}
+                        href={product.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: 'inherit', textDecoration: 'none', border: '1px solid var(--glass-border)', borderRadius: 10, overflow: 'hidden', background: 'var(--surface)' }}
                       >
-                        Preview route
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <p style={{ margin: 0, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                  {storePreview.status || 'No in-app store results are available. You can still open the full search.'}
-                </p>
-              )}
+                        <img
+                          src={storeLogoUrl(product.store)}
+                          alt={product.productName}
+                          onError={(event) => {
+                            event.currentTarget.src = imageFallbackUrl(product.store);
+                          }}
+                          style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'contain', display: 'block', padding: 20, background: 'rgba(255,255,255,0.38)' }}
+                        />
+                        <div style={{ padding: 10 }}>
+                          <strong style={{ display: 'block', fontSize: '0.78rem', marginBottom: 4 }}>{product.store}</strong>
+                          <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.72rem', lineHeight: 1.4 }}>{product.productName}</span>
+                          <span style={{ display: 'block', color: 'var(--accent)', fontSize: '0.76rem', marginTop: 6 }}>{product.price}</span>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+                {nearbyPlaces.length ? (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {nearbyPlaces.map((place) => (
+                      <article key={place.placeId || place.name} style={{ padding: 12, border: '1px solid var(--glass-border)', borderRadius: 10, background: 'var(--surface)' }}>
+                        <strong style={{ display: 'block', marginBottom: 4 }}>{place.name}</strong>
+                        <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.76rem' }}>
+                          {place.distanceKm !== null ? `${place.distanceKm} km | ` : ''}
+                          {place.address || 'Address unavailable'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStorePreview(null);
+                            setRoutePreview(buildRoutePreview(place, coords, selectedShop));
+                          }}
+                          className="ghost-btn"
+                          style={{ marginTop: 8, fontSize: '0.72rem' }}
+                        >
+                          Preview route
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                ) : !onlineProducts.length && !productsStatus ? (
+                  <p style={{ margin: 0, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                    {storePreview.status || 'No in-app store results are available. You can still open the full search.'}
+                  </p>
+                ) : null}
+              </div>
             </div>
-            <a href={storePreview.url} target="_blank" rel="noreferrer" className="ghost-btn" style={{ display: 'inline-block', marginTop: 12, textDecoration: 'none' }}>
+            <a href={buildStoreSearchUrl(selectedShop, coords)} target="_blank" rel="noreferrer" className="ghost-btn" style={{ display: 'inline-block', marginTop: 12, textDecoration: 'none' }}>
               Open full search
             </a>
           </section>
@@ -1237,7 +1396,7 @@ function DoneView({ scanResult, imageDataUrl, onNewScan, user, authUser, onChatM
   );
 }
 
-function SuggestionRow({ s, index = 0, onShop }) {
+function SuggestionRow({ s, index = 0, onShop, onRoute }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div
@@ -1262,6 +1421,13 @@ function SuggestionRow({ s, index = 0, onShop }) {
           {s.distance ? `${s.distance} · ` : ''}{s.price_php || ''}
         </div>
       </div>
+      <button type="button" onClick={onRoute} style={{
+          padding: '4px 10px', border: '1px solid var(--glass-border)', color: 'var(--text-muted)',
+          borderRadius: 6, textDecoration: 'none', fontSize: '0.7rem', flexShrink: 0,
+          background: 'transparent', cursor: 'pointer',
+        }}>
+        Route
+      </button>
       <button type="button" onClick={onShop} style={{
           padding: '4px 10px', border: '1px solid var(--accent)', color: 'var(--accent)',
           borderRadius: 6, textDecoration: 'none', fontSize: '0.7rem', flexShrink: 0,

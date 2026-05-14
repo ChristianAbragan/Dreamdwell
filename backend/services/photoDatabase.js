@@ -17,7 +17,7 @@ export const PHOTO_DATABASE = [
     tags: ['minimalist', 'calm', 'neutral', 'living room', 'natural light', 'clean lines'],
     imageUrl: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=900&q=80',
     description: 'Layered neutrals, pale oak, and soft edges for a quiet everyday space.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=minimalist+living+room+decor',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=minimalist+living+room+decor',
     height: 420,
   },
   {
@@ -31,7 +31,7 @@ export const PHOTO_DATABASE = [
     tags: ['minimalist', 'airy', 'bedroom', 'white', 'soft bedding', 'serene'],
     imageUrl: 'https://images.unsplash.com/photo-1616594039964-ae9021a400a0?auto=format&fit=crop&w=700&q=80',
     description: 'A light-filled retreat with tonal layers and low visual noise.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=minimalist+bedroom+decor',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=minimalist+bedroom+decor',
     height: 520,
   },
   {
@@ -45,7 +45,7 @@ export const PHOTO_DATABASE = [
     tags: ['minimalist', 'office', 'workspace', 'focus', 'clean', 'productivity'],
     imageUrl: 'https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=900&q=80',
     description: 'A crisp workstation that keeps the eye and mind uncluttered.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=minimalist+office+desk+setup',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=minimalist+office+desk+setup',
     height: 360,
   },
   {
@@ -59,7 +59,7 @@ export const PHOTO_DATABASE = [
     tags: ['minimalist', 'kitchen', 'white', 'clean', 'bright', 'modern'],
     imageUrl: 'https://images.unsplash.com/photo-1556911220-bff31c812dba?auto=format&fit=crop&w=900&q=80',
     description: 'A serene culinary space where every element earns its place.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=minimalist+kitchen+decor',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=minimalist+kitchen+decor',
     height: 480,
   },
   {
@@ -73,7 +73,7 @@ export const PHOTO_DATABASE = [
     tags: ['minimalist', 'bathroom', 'spa', 'tranquil', 'stone', 'clean'],
     imageUrl: 'https://images.unsplash.com/photo-1620626012053-1c1e0f5d2b3c?auto=format&fit=crop&w=900&q=80',
     description: 'Quiet stone and soft light for a restorative bathing ritual.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=minimalist+bathroom+decor',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=minimalist+bathroom+decor',
     height: 550,
   },
   {
@@ -87,7 +87,7 @@ export const PHOTO_DATABASE = [
     tags: ['minimalist', 'dining', 'refined', 'monochrome', 'wood table'],
     imageUrl: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=900&q=80',
     description: 'A dining space of quiet confidence and considered restraint.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=minimalist+dining+room',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=minimalist+dining+room',
     height: 460,
   },
   {
@@ -101,7 +101,7 @@ export const PHOTO_DATABASE = [
     tags: ['minimalist', 'entryway', 'welcoming', 'calm', 'simple'],
     imageUrl: 'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=900&q=80',
     description: 'An understated arrival that whispers rather than shouts.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=minimalist+entryway',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=minimalist+entryway',
     height: 500,
   },
 
@@ -117,7 +117,7 @@ export const PHOTO_DATABASE = [
     tags: ['scandinavian', 'cozy', 'living room', 'light wood', 'texture', 'warm'],
     imageUrl: 'https://images.unsplash.com/photo-1556228453-efd6c1ff04f6?auto=format&fit=crop&w=900&q=80',
     description: 'Cream textiles, pale timber, and practical comfort in balance.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=scandinavian+living+room+decor',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=scandinavian+living+room+decor',
     height: 500,
   },
   {
@@ -131,7 +131,7 @@ export const PHOTO_DATABASE = [
     tags: ['scandinavian', 'kitchen', 'bright', 'oak', 'storage', 'fresh'],
     imageUrl: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?auto=format&fit=crop&w=900&q=80',
     description: 'A clean, bright kitchen grounded with warm timber cabinetry.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=scandinavian+kitchen+decor',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=scandinavian+kitchen+decor',
     height: 420,
   },
   {
@@ -145,7 +145,7 @@ export const PHOTO_DATABASE = [
     tags: ['scandinavian', 'bedroom', 'linen', 'light', 'restful', 'simplicity'],
     imageUrl: 'https://images.unsplash.com/photo-1505693416388-c5402a4d0d24?auto=format&fit=crop&w=900&q=80',
     description: 'Light oak, matte whites, and gentle texture for better rest.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=scandinavian+bedroom+decor',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=scandinavian+bedroom+decor',
     height: 560,
   },
   {
@@ -159,7 +159,7 @@ export const PHOTO_DATABASE = [
     tags: ['scandinavian', 'office', 'bright', 'birch', 'clean', 'workspace'],
     imageUrl: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=900&q=80',
     description: 'A sunlit workspace with pale wood and quiet order.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=scandinavian+office+decor',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=scandinavian+office+decor',
     height: 440,
   },
   {
@@ -173,7 +173,7 @@ export const PHOTO_DATABASE = [
     tags: ['scandinavian', 'bathroom', 'hygge', 'warm', 'wood accents', 'spa'],
     imageUrl: 'https://images.unsplash.com/photo-1584622050111-993a426fbf0a?auto=format&fit=crop&w=900&q=80',
     description: 'Wood-accented warmth meets clean Nordic practicality.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=scandinavian+bathroom',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=scandinavian+bathroom',
     height: 580,
   },
   {
@@ -187,7 +187,7 @@ export const PHOTO_DATABASE = [
     tags: ['scandinavian', 'living room', 'airy', 'light', 'bright', 'white walls'],
     imageUrl: 'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?auto=format&fit=crop&w=900&q=80',
     description: 'Flooded with natural light, softened by wool and pale timber.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=nordic+living+room',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=nordic+living+room',
     height: 470,
   },
   {
@@ -201,7 +201,7 @@ export const PHOTO_DATABASE = [
     tags: ['scandinavian', 'dining', 'inviting', 'oak table', 'linen', 'gathering'],
     imageUrl: 'https://images.unsplash.com/photo-1600566753086-00f18c169577?auto=format&fit=crop&w=900&q=80',
     description: 'A warm oak table surrounded by linen chairs for Nordic gatherings.',
-    shopUrl: 'https://www.google.com/search?tbm=shop&q=nordic+dining+table',
+    shopUrl: 'https://www.lazada.com.ph/catalog/?q=nordic+dining+table',
     height: 450,
   },
 ];
